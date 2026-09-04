@@ -1,0 +1,20 @@
+# Core AI service runtime (CPU-friendly, always required).
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+httpx==0.28.1
+numpy==2.2.0
+python-dateutil==2.9.0.post0
+
+# Deterministic geometry / geospatial engines.
+shapely==2.0.6
+pyproj==3.7.0
+
+# Document / invoice engines.
+pypdf==5.1.0
+python-docx==1.1.2
+openpyxl==3.1.5
+Pillow==11.0.0
+
+# Metadata extraction (drone imagery EXIF/GPS).
+exifread==3.0.0

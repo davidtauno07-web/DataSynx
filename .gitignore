@@ -27,3 +27,6 @@ models/
 storage/
 tmp/
 exports/
+
+# Python
+apps/ai/.venv/
