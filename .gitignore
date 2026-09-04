@@ -1,0 +1,29 @@
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# models & caches (never commit weights)
+models/
+.cache/
+*.pt
+*.onnx
+*.bin
+*.safetensors
+
+# local artifacts
+storage/
+tmp/
+exports/
