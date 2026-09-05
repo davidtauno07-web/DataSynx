@@ -16,7 +16,9 @@ const TEXT_LIKE = new Set(['txt', 'csv', 'eml', 'json', 'md']);
 /** Filenames are never trusted for storage; they are only kept as metadata. */
 export function sanitizeFilename(name: string): string {
   const base = name.replace(/\\/g, '/').split('/').pop() ?? 'file';
-  return base.replace(/[\u0000-\u001f<>:"|?*]/g, '_').slice(0, 255) || 'file';
+  // eslint-disable-next-line no-control-regex -- control characters are exactly what must be stripped
+  const control = /[\u0000-\u001f<>:"|?*]/g;
+  return base.replace(control, '_').slice(0, 255) || 'file';
 }
 
 export async function validateUpload(

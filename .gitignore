@@ -16,7 +16,7 @@ __pycache__/
 .ruff_cache/
 
 # models & caches (never commit weights)
-models/
+/models/
 .cache/
 *.pt
 *.onnx
@@ -24,9 +24,6 @@ models/
 *.safetensors
 
 # local artifacts
-storage/
-tmp/
-exports/
-
-# Python
-apps/ai/.venv/
+/storage/
+/tmp/
+/exports/
