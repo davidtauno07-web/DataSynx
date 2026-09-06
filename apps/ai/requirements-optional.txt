@@ -1,0 +1,13 @@
+# Heavy, hardware-dependent engines. Install what the deployment needs; every
+# engine below degrades to an explicit "unavailable" answer when absent.
+
+# Computer vision (CCTV / drone detection + tracking)
+opencv-python-headless==4.10.0.84
+ultralytics==8.3.49          # YOLO detection + ByteTrack tracking; pulls torch
+lap==0.5.12                  # linear assignment solver required by ByteTrack
+
+# Speech recognition
+faster-whisper==1.1.0
+
+# OCR for scanned documents (also requires the tesseract binary)
+pytesseract==0.3.13
