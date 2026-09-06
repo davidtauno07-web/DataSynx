@@ -99,7 +99,7 @@ export interface Compilation {
   name: string;
   modality: Modality;
   columns: string[];
-  rowCount: number;
+  recordCount: number;
   updatedAt: string;
 }
 

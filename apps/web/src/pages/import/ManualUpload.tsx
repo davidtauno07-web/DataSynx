@@ -8,7 +8,7 @@ interface UploadedFile {
   originalName: string;
   modality: string;
   sizeBytes: number;
-  duplicateOf?: { id: string; reference: string } | null;
+  duplicateOf?: string | null;
 }
 
 interface Props {
@@ -121,7 +121,7 @@ export function ManualUpload({ onImported }: Props) {
                 <span className="mono">{file.reference}</span>
                 <span>{file.originalName}</span>
                 <span className="pill">{file.modality}</span>
-                {file.duplicateOf && <span className="pill warn">Possible duplicate of {file.duplicateOf.reference}</span>}
+                {file.duplicateOf && <span className="pill warn">Possible duplicate of {file.duplicateOf}</span>}
               </li>
             ))}
           </ul>

@@ -1,4 +1,4 @@
-import { Modality, type Prisma, type ProcessingResult } from '@prisma/client';
+import { Modality, Prisma, type ProcessingResult } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { publishEvent } from '../../events/bus.js';
 import type { CompilationRow } from '../../domain/results.js';
@@ -18,16 +18,7 @@ export async function upsertCompilationRows(params: {
 }): Promise<{ compilationId: string; recordCount: number }> {
   const { workspaceId, modality, result, sourceRef, columns, rows } = params;
 
-  const compilation = await prisma.compilation.upsert({
-    where: { workspaceId_modality: { workspaceId, modality } },
-    create: {
-      workspaceId,
-      modality,
-      name: `${modalityLabel[modality]} compilation`,
-      columns,
-    },
-    update: {},
-  });
+  const compilation = await openCompilation(workspaceId, modality, columns);
 
   // Union the column set so later results can widen the table.
   const existingColumns = (compilation.columns as string[]) ?? [];
@@ -72,6 +63,31 @@ export async function upsertCompilationRows(params: {
   });
 
   return { compilationId: compilation.id, recordCount };
+}
+
+/**
+ * Workers compile concurrently, so two items of the same modality can reach the
+ * upsert before either has committed. Postgres resolves that with a unique
+ * violation on (workspaceId, modality); the loser simply reads the winner's row.
+ */
+async function openCompilation(workspaceId: string, modality: Modality, columns: string[]) {
+  try {
+    return await prisma.compilation.upsert({
+      where: { workspaceId_modality: { workspaceId, modality } },
+      create: {
+        workspaceId,
+        modality,
+        name: `${modalityLabel[modality]} compilation`,
+        columns,
+      },
+      update: {},
+    });
+  } catch (err) {
+    if (!(err instanceof Prisma.PrismaClientKnownRequestError) || err.code !== 'P2002') throw err;
+    return prisma.compilation.findUniqueOrThrow({
+      where: { workspaceId_modality: { workspaceId, modality } },
+    });
+  }
 }
 
 export async function listCompilations(workspaceId: string) {

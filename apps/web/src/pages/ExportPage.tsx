@@ -86,7 +86,7 @@ export function ExportPage() {
             >
               {compilations.data.compilations.map((compilation) => (
                 <option key={compilation.id} value={compilation.id}>
-                  {compilation.name} · {compilation.modality} · {compilation.rowCount} rows
+                  {compilation.name} · {compilation.modality} · {compilation.recordCount} rows
                 </option>
               ))}
             </select>
