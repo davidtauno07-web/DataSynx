@@ -12,6 +12,7 @@ from typing import Any
 
 from ..download import download, suffix_for
 from ..errors import EngineUnavailable
+from ..measure.geo import offset_coordinate
 from ..measure.kinematics import (
     Calibration,
     CalibrationError,
@@ -19,6 +20,7 @@ from ..measure.kinematics import (
     direction_degrees,
     load_calibration,
     speed,
+    to_world,
     track_distance,
 )
 from ..schemas import CompilationRow, Measurement, ProcessingOutput, ProcessRequest
@@ -80,6 +82,20 @@ def zone_of(track: Track, zones: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def georeference(spec: dict[str, Any] | None) -> tuple[float, float, float] | None:
+    """Reads an optional (lat, lon, heading) anchor for the calibrated ground plane.
+
+    Without it a calibrated track is only known in local metres, so no WGS84
+    geometry is emitted and GeoJSON export is refused rather than invented.
+    """
+    if not spec:
+        return None
+    lat, lon = spec.get("originLat"), spec.get("originLon")
+    if lat is None or lon is None:
+        return None
+    return float(lat), float(lon), float(spec.get("headingDeg", 0.0))
+
+
 def pixel_path_length(track: Track) -> float:
     points = [d.centroid for d in track.detections]
     return sum(math.dist(points[i], points[i + 1]) for i in range(len(points) - 1))
@@ -122,6 +138,12 @@ class CCTVEngine(Engine):
 
         lines = options.get("lines") or []
         zones = options.get("zones") or []
+        anchor = georeference(options.get("georeference"))
+        if anchor and not calibration.available:
+            warnings.append(
+                "A georeference was supplied without camera calibration: "
+                "track geometry stays unavailable because pixels cannot be placed on the ground plane."
+            )
 
         rows: list[CompilationRow] = []
         measurements: list[Measurement] = []
@@ -211,13 +233,7 @@ class CCTVEngine(Engine):
                         "Zone": zone_of(track, zones),
                         "Frames": len(track.detections),
                     },
-                    geometry={
-                        "type": "LineString",
-                        "coordinates": [[p["x"], p["y"]] for p in trajectory],
-                        "properties": {"space": "image-pixels", "object": name},
-                    }
-                    if len(trajectory) > 1
-                    else None,
+                    geometry=self._track_geometry(track, calibration, anchor),
                 )
             )
 
@@ -235,6 +251,24 @@ class CCTVEngine(Engine):
         return self.output(
             summary=summary, columns=COLUMNS, rows=rows, measurements=measurements, warnings=warnings
         )
+
+    @staticmethod
+    def _track_geometry(
+        track: Track, calibration: Calibration, anchor: tuple[float, float, float] | None
+    ) -> dict[str, Any] | None:
+        """WGS84 trajectory, only when calibration and a georeference both exist."""
+        if anchor is None or not calibration.available or len(track.detections) < 2:
+            return None
+        lat, lon, heading = anchor
+        coordinates: list[list[float]] = []
+        for detection in track.detections:
+            try:
+                east, north = to_world(calibration, detection.centroid)
+            except CalibrationError:
+                return None
+            out_lon, out_lat = offset_coordinate((lon, lat), east, north, heading)
+            coordinates.append([round(out_lon, 8), round(out_lat, 8)])
+        return {"type": "LineString", "coordinates": coordinates}
 
     def demo(self, request: ProcessRequest) -> ProcessingOutput:
         row = CompilationRow(

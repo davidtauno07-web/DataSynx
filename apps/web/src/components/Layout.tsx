@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { Brand } from './Brand';
 
 const NAV = [
   { to: '/import', label: 'Import' },
@@ -14,7 +15,7 @@ export function Layout() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">DataSynx</span>
+        <Brand />
         <nav className="nav" aria-label="Main">
           {NAV.map((item) => (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'active' : undefined)}>

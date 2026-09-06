@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Brand } from '../components/Brand';
 import { Alert } from '../components/Panel';
 import { useAuth } from '../lib/auth';
 
@@ -30,6 +31,7 @@ export function LoginPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
+        <Brand size={28} wordmark={false} />
         <h1>DataSynx</h1>
         <p className="sub">Sign in to your workspace.</p>
         {error && <Alert>{error}</Alert>}

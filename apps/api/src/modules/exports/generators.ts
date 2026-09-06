@@ -43,11 +43,20 @@ async function toXlsx(dataset: Dataset): Promise<GeneratedExport> {
 
   for (const row of dataset.rows) {
     const values: Record<string, unknown> = {};
+    const dateColumns: string[] = [];
     for (const column of dataset.columns) {
       const value = row[column];
-      values[column] = isIsoDate(value) ? new Date(value) : isNumeric(value) ? value : cellToString(value);
+      if (isIsoDate(value)) {
+        values[column] = new Date(value);
+        dateColumns.push(column);
+      } else {
+        values[column] = isNumeric(value) ? value : cellToString(value);
+      }
     }
-    sheet.addRow(values);
+    const added = sheet.addRow(values);
+    for (const column of dateColumns) {
+      added.getCell(column).numFmt = 'yyyy-mm-dd';
+    }
   }
 
   const meta = workbook.addWorksheet('Metadata');

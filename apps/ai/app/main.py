@@ -11,11 +11,12 @@ from __future__ import annotations
 import logging
 import secrets
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 
 from .config import resolve_device, settings
 from .engines import ENGINES
-from .errors import EngineUnavailable
+from .errors import EngineFailed, EngineUnavailable
 from .measure_ops import OPERATIONS, run_operation
 from .schemas import MeasureRequest, ProcessingOutput, ProcessRequest
 
@@ -67,9 +68,22 @@ def process(engine_name: str, request: ProcessRequest) -> ProcessingOutput:
         raise EngineUnavailable(f"{engine_name} engine unavailable: {detail}")
 
     logger.info("engine=%s reference=%s mode=real", engine_name, request.fileReference)
-    return engine.run(request)
+    try:
+        return engine.run(request)
+    except HTTPException:
+        raise
+    except Exception as exc:  # a corrupt or unsupported source must fail honestly, never silently
+        logger.exception("engine=%s reference=%s failed", engine_name, request.fileReference)
+        raise EngineFailed(f"{engine_name} engine could not process this file: {type(exc).__name__}: {exc}") from exc
 
 
 @app.post("/v1/measure", dependencies=[Depends(authorize)])
 def measure(request: MeasureRequest) -> dict[str, object]:
     return run_operation(request.operation, request.params)
+
+
+@app.exception_handler(Exception)
+def unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Callers must always receive a structured reason instead of an HTML error page."""
+    logger.exception("unhandled error on %s", request.url.path)
+    return JSONResponse(status_code=500, content={"detail": f"AI service error: {type(exc).__name__}: {exc}"})

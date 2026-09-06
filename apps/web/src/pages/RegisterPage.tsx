@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Brand } from '../components/Brand';
 import { Alert } from '../components/Panel';
 import { useAuth } from '../lib/auth';
 
@@ -31,6 +32,7 @@ export function RegisterPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
+        <Brand size={28} wordmark={false} />
         <h1>Create account</h1>
         <p className="sub">A workspace is created with your account.</p>
         {error && <Alert>{error}</Alert>}

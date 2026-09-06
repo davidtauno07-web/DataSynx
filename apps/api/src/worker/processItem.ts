@@ -1,5 +1,6 @@
 import { ItemStatus, JobStatus, ResultOrigin } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import { AppError } from '../lib/errors.js';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 import { presignGet } from '../lib/storage.js';
@@ -176,7 +177,7 @@ export async function processItem(data: ProcessItemJob): Promise<void> {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown processing error';
+    const message = failureMessage(err);
     logger.error({ err, itemId: item.id, file: item.file.reference }, 'item processing failed');
 
     await prisma.processingItem.update({
@@ -199,4 +200,17 @@ export async function processItem(data: ProcessItemJob): Promise<void> {
   } finally {
     await refreshJobStatus(data.jobId, data.workspaceId);
   }
+}
+
+/** Keeps the engine's own reason (missing model, corrupt source) instead of a generic headline. */
+function failureMessage(err: unknown): string {
+  if (err instanceof AppError) {
+    const details = err.details;
+    const reason =
+      typeof details === 'object' && details !== null && 'reason' in details
+        ? String((details as { reason: unknown }).reason)
+        : '';
+    return reason ? `${err.message}: ${reason}` : err.message;
+  }
+  return err instanceof Error ? err.message : 'Unknown processing error';
 }

@@ -118,3 +118,17 @@ def test_measure_operations_endpoint_surface() -> None:
 
     with pytest.raises(EngineFailed):
         run_operation("teleport", {})
+
+
+def test_offset_coordinate_projects_local_metres_onto_wgs84() -> None:
+    origin = TALLINN
+    north = geo.offset_coordinate(origin, 0, 100)
+    assert geo.geodesic_distance(origin, north) == pytest.approx(100, abs=0.5)
+    assert geo.bearing(origin, north) == pytest.approx(0, abs=0.5)
+
+    east = geo.offset_coordinate(origin, 100, 0)
+    assert geo.bearing(origin, east) == pytest.approx(90, abs=0.5)
+
+    rotated = geo.offset_coordinate(origin, 0, 100, heading_deg=90)
+    assert geo.bearing(origin, rotated) == pytest.approx(90, abs=0.5)
+    assert geo.offset_coordinate(origin, 0, 0) == origin

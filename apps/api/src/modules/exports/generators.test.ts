@@ -52,6 +52,7 @@ describe('export generators', () => {
     expect(sheet?.getRow(1).getCell(2).value).toBe('Invoice Number');
     expect(sheet?.getRow(2).getCell(5).value).toBe(610.5);
     expect(sheet?.getRow(2).getCell(4).value).toBeInstanceOf(Date);
+    expect(sheet?.getRow(2).getCell(4).numFmt).toBe('yyyy-mm-dd');
     expect(workbook.getWorksheet('Metadata')).toBeDefined();
   });
 

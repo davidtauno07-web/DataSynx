@@ -103,7 +103,7 @@ async function executeOperation(op: Operation, ctx: CommandContext): Promise<Com
       await getProcessingQueue().add(
         'process-item',
         { itemId: item.id, jobId: item.jobId, workspaceId: ctx.workspaceId },
-        { jobId: `item:${item.id}:${Date.now()}` },
+        { jobId: `item-${item.id}-${Date.now()}` },
       );
       return {
         operation: op,

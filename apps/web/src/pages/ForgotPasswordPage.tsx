@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
+import { Brand } from '../components/Brand';
 import { Alert } from '../components/Panel';
 import { api } from '../lib/api';
 
@@ -24,6 +25,7 @@ export function ForgotPasswordPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
+        <Brand size={28} wordmark={false} />
         <h1>Reset password</h1>
         <p className="sub">We send a reset link if the account exists.</p>
         {error && <Alert>{error}</Alert>}

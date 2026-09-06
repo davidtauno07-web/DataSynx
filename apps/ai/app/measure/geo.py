@@ -79,6 +79,21 @@ def ground_sample_distance(
     return (altitude_m * sensor_width_mm) / (focal_length_mm * image_width_px)
 
 
+def offset_coordinate(origin: Any, easting_m: float, northing_m: float, heading_deg: float = 0.0) -> Coordinate:
+    """Projects a local planar offset (metres) from a WGS84 origin.
+
+    `heading_deg` rotates the local +Y axis away from true north, so a calibrated
+    ground plane can be georeferenced without assuming an axis alignment.
+    """
+    lon, lat = _coord(origin)
+    distance = math.hypot(easting_m, northing_m)
+    if distance == 0:
+        return lon, lat
+    azimuth = (math.degrees(math.atan2(easting_m, northing_m)) + heading_deg) % 360.0
+    out_lon, out_lat, _ = GEOD.fwd(lon, lat, azimuth, distance)
+    return out_lon, out_lat
+
+
 def haversine(a: Any, b: Any) -> float:
     """Spherical fallback, kept for cross-checking the ellipsoidal result."""
     (lon1, lat1), (lon2, lat2) = _coord(a), _coord(b)

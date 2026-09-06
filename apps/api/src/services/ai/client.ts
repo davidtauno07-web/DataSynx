@@ -32,7 +32,13 @@ async function call<T>(path: string, body: unknown, parse: (raw: unknown) => T):
     });
   }
 
-  const payload = (await res.body.json()) as unknown;
+  const text = await res.body.text();
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text) as unknown;
+  } catch {
+    payload = { detail: text.slice(0, 500) || `AI service returned ${res.statusCode}` };
+  }
   logger.info({ path, status: res.statusCode, ms: Date.now() - started }, 'ai call');
 
   if (res.statusCode >= 400) {

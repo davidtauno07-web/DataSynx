@@ -9,10 +9,14 @@ from fastapi.testclient import TestClient
 
 from app.engines import ENGINES
 from app.engines.audio import voice_activity
+from app.engines.cctv import CCTVEngine
 from app.engines.document import classify, extract_text
 from app.engines.email import extract_entities, strip_html
 from app.engines.invoice import parse_amount, parse_date, rule_based_extract, validate
+from app.engines.vision import Detection, Track
 from app.main import app
+from app.measure import geo
+from app.measure.kinematics import load_calibration
 from app.schemas import ProcessRequest
 
 INVOICE_TEXT = """ACME Analytics OU
@@ -204,3 +208,43 @@ def test_unknown_engine_returns_404() -> None:
         json={"fileReference": "x", "originalName": "y", "mimeType": "text/plain"},
     )
     assert response.status_code == 404
+
+
+def _straight_track() -> Track:
+    return Track(
+        track_id=1,
+        label="car",
+        detections=[
+            Detection(label="car", confidence=0.9, box=(x, 590.0, x + 20, 610.0), frame=i, timestamp=i * 0.5)
+            for i, x in enumerate((40.0, 200.0, 400.0, 600.0))
+        ],
+    )
+
+
+CALIBRATION = load_calibration(
+    {
+        "points": [
+            {"x": 40, "y": 600, "worldX": 0, "worldY": 0},
+            {"x": 600, "y": 600, "worldX": 12, "worldY": 0},
+            {"x": 560, "y": 300, "worldX": 12, "worldY": 20},
+            {"x": 90, "y": 300, "worldX": 0, "worldY": 20},
+        ]
+    }
+)
+
+
+def test_cctv_emits_no_geojson_geometry_without_a_georeference() -> None:
+    """Pixel or local-metre tracks must never be exported as WGS84 coordinates."""
+    assert CCTVEngine._track_geometry(_straight_track(), CALIBRATION, None) is None
+    assert CCTVEngine._track_geometry(_straight_track(), load_calibration(None), (59.437, 24.7536, 0.0)) is None
+
+
+def test_cctv_georeferenced_track_produces_wgs84_linestring() -> None:
+    geometry = CCTVEngine._track_geometry(_straight_track(), CALIBRATION, (59.437, 24.7536, 0.0))
+    assert geometry is not None
+    assert geometry["type"] == "LineString"
+    coordinates = geometry["coordinates"]
+    assert len(coordinates) == 4
+    assert all(-180 <= lon <= 180 and -90 <= lat <= 90 for lon, lat in coordinates)
+    # The track spans the calibrated 12 m baseline, so the ends are ~12 m apart.
+    assert geo.geodesic_distance(coordinates[0], coordinates[-1]) == pytest.approx(12, abs=1.5)

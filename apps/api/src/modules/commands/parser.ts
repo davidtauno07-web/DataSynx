@@ -68,6 +68,11 @@ export function parseCommand(input: string): Operation {
     const clause = showOnly[1];
     const eq = /^(.+?)\s+(?:=|is|equals)\s+(.+)$/i.exec(clause);
     if (eq?.[1] && eq[2]) return { kind: 'filter', field: eq[1].trim(), operator: 'eq', value: eq[2].trim() };
+    const listed = clause
+      .split(/\s*(?:,| and )\s*/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (listed.length > 1) return { kind: 'show_columns', columns: listed };
     return { kind: 'filter', field: 'Type', operator: 'contains', value: clause.trim() };
   }
 

@@ -20,6 +20,7 @@
     "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
     "test": "npm run test --workspace apps/api && npm run test --workspace apps/web",
     "db:migrate": "npm run db:migrate --workspace apps/api",
+    "db:deploy": "npm run db:deploy --workspace apps/api",
     "db:generate": "npm run db:generate --workspace apps/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"

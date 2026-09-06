@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Brand } from '../components/Brand';
 import { Alert } from '../components/Panel';
 import { api } from '../lib/api';
 
@@ -28,6 +29,7 @@ export function ResetPasswordPage() {
   return (
     <div className="auth-shell">
       <div className="auth-card">
+        <Brand size={28} wordmark={false} />
         <h1>Choose a new password</h1>
         <p className="sub">The reset link expires shortly after it is issued.</p>
         {error && <Alert>{error}</Alert>}

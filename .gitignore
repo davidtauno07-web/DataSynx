@@ -27,3 +27,4 @@ __pycache__/
 /storage/
 /tmp/
 /exports/
+*.tsbuildinfo

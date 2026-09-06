@@ -6,14 +6,26 @@ import csv
 import io
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..download import download, suffix_for
 from ..errors import EngineFailed, EngineUnavailable
 from ..schemas import CompilationRow, ProcessingOutput, ProcessRequest
 from .base import Engine, optional_module
 
+if TYPE_CHECKING:
+    from pypdf import PageObject
+
 COLUMNS = ["Document", "Type", "Pages", "Words", "Characters", "Source", "Summary"]
+
+
+def _pdf_page_text(page: PageObject) -> str:
+    """Layout extraction preserves column spacing and avoids kerning artefacts such as "T otal"."""
+    try:
+        layout = page.extract_text(extraction_mode="layout")
+    except (TypeError, ValueError, KeyError):
+        layout = ""
+    return layout or page.extract_text() or ""
 
 
 def extract_text(path: Path, mime: str, name: str) -> tuple[str, int, list[str], str]:
@@ -26,7 +38,7 @@ def extract_text(path: Path, mime: str, name: str) -> tuple[str, int, list[str],
         if pypdf is None:
             raise EngineUnavailable("PDF parsing is unavailable: install the 'pypdf' dependency")
         reader = pypdf.PdfReader(str(path))
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages = [_pdf_page_text(page) for page in reader.pages]
         text = "\n".join(pages).strip()
         if text:
             return text, len(pages), warnings, "pdf-text-layer"

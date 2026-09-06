@@ -54,7 +54,7 @@ export async function createJob(input: CreateJobInput): Promise<ProcessingJob> {
       .map((item) => ({
         name: 'process-item',
         data: { itemId: item.id, jobId: job.id, workspaceId: job.workspaceId },
-        opts: { jobId: `item:${item.id}` },
+        opts: { jobId: `item-${item.id}` },
       })),
   );
 
@@ -80,7 +80,7 @@ export async function cancelJob(workspaceId: string, jobId: string): Promise<voi
   const queue = getProcessingQueue();
   await Promise.all(
     items.map(async (item) => {
-      const queued = await queue.getJob(`item:${item.id}`);
+      const queued = await queue.getJob(`item-${item.id}`);
       await queued?.remove().catch(() => undefined);
     }),
   );
@@ -131,7 +131,7 @@ export async function retryFailedItems(workspaceId: string, jobId: string): Prom
     failed.map((item) => ({
       name: 'process-item',
       data: { itemId: item.id, jobId, workspaceId },
-      opts: { jobId: `item:${item.id}:${Date.now()}` },
+      opts: { jobId: `item-${item.id}-${Date.now()}` },
     })),
   );
 

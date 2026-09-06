@@ -92,7 +92,7 @@ export function ProcessingPage() {
 
   const progress = useMemo(() => {
     if (!job || job.totalItems === 0) return 0;
-    return Math.round(((job.completedItems + job.failedItems) / job.totalItems) * 100);
+    return Math.round(((job.doneItems + job.failedItems) / job.totalItems) * 100);
   }, [job]);
 
   return (
@@ -174,10 +174,10 @@ export function ProcessingPage() {
                   <span className="mono">{job.reference}</span>
                   <StatusPill status={job.status} />
                   <strong className="mono">
-                    {job.completedItems + job.failedItems} / {job.totalItems}
+                    {job.doneItems + job.failedItems} / {job.totalItems}
                   </strong>
                   <span className="muted">
-                    {job.completedItems} completed · {job.failedItems} failed
+                    {job.doneItems} completed · {job.failedItems} failed
                   </span>
                 </div>
                 <div className="progress" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>

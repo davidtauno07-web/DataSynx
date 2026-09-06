@@ -53,7 +53,7 @@ export interface ProcessingJob {
   name: string;
   status: ItemStatus;
   totalItems: number;
-  completedItems: number;
+  doneItems: number;
   failedItems: number;
   createdAt: string;
 }

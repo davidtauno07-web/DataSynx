@@ -24,6 +24,13 @@ describe('parseCommand', () => {
     });
   });
 
+  it('treats a listed "show only" clause as a column projection', () => {
+    expect(parseCommand('Show only supplier and total')).toEqual({
+      kind: 'show_columns',
+      columns: ['supplier', 'total'],
+    });
+  });
+
   it('parses row removal and restoration as reversible dataset operations', () => {
     expect(parseCommand('Remove vehicle #17 from the results')).toEqual({
       kind: 'remove_rows',
