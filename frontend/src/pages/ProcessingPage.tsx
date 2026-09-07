@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Empty, Panel } from '../components/Panel';
+import { CorrectionPanel } from '../components/CorrectionPanel';
 import { ResultView } from '../components/ResultView';
 import { SourcePreview } from '../components/SourcePreview';
 import { StatusPill } from '../components/StatusPill';
@@ -211,7 +212,10 @@ export function ProcessingPage() {
                   this batch are unaffected — use “Retry failed”.
                 </Alert>
               ) : result ? (
-                <ResultView result={result} />
+                <>
+                  <ResultView result={result} />
+                  <CorrectionPanel result={result} />
+                </>
               ) : (
                 <div className="stack">
                   <p className="muted">Processing {item.file.originalName}…</p>

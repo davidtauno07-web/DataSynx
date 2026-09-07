@@ -12,6 +12,7 @@ import { importRouter } from './modules/imports/routes.js';
 import { processingRouter } from './modules/processing/routes.js';
 import { exportRouter } from './modules/exports/routes.js';
 import { emailRouter } from './modules/email/routes.js';
+import { trainingRouter } from './modules/training/routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -52,6 +53,7 @@ export function createApp(): Express {
   app.use('/api/processing', processingRouter);
   app.use('/api/exports', exportRouter);
   app.use('/api/email', emailRouter);
+  app.use('/api/training', trainingRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

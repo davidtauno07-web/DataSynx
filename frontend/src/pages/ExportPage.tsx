@@ -13,6 +13,7 @@ export function ExportPage() {
   const queryClient = useQueryClient();
   const [compilationId, setCompilationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hiddenColumns, setHiddenColumns] = useState<string[]>([]);
 
   const compilations = useQuery({
     queryKey: ['compilations'],
@@ -46,7 +47,12 @@ export function ExportPage() {
   useProcessingEvents(useCallback(() => invalidate(), [invalidate]));
 
   const createExport = useMutation({
-    mutationFn: (format: ExportFormat) => api.post('/exports', { compilationId, format }),
+    mutationFn: (format: ExportFormat) =>
+      api.post('/exports', {
+        compilationId,
+        format,
+        ...(hiddenColumns.length > 0 ? { options: { columns: visibleColumns } } : {}),
+      }),
     onSuccess: invalidate,
     onError: (err: Error) => setError(err.message),
   });
@@ -64,6 +70,13 @@ export function ExportPage() {
   const selected = compilations.data?.compilations.find((c) => c.id === compilationId) ?? null;
   const rows = records.data?.records ?? [];
   const columns = selected?.columns ?? [];
+  const visibleColumns = columns.filter((column) => !hiddenColumns.includes(column));
+
+  function toggleColumn(column: string) {
+    setHiddenColumns((current) =>
+      current.includes(column) ? current.filter((c) => c !== column) : [...current, column],
+    );
+  }
 
   return (
     <div className="stack">
@@ -105,7 +118,7 @@ export function ExportPage() {
               <thead>
                 <tr>
                   <th>Row</th>
-                  {columns.map((column) => (
+                  {visibleColumns.map((column) => (
                     <th key={column}>{humanLabel(column)}</th>
                   ))}
                 </tr>
@@ -114,7 +127,7 @@ export function ExportPage() {
                 {rows.map((record) => (
                   <tr key={record.id} style={record.removed ? { opacity: 0.4 } : undefined}>
                     <td className="mono">{record.rowKey}</td>
-                    {columns.map((column) => (
+                    {visibleColumns.map((column) => (
                       <td key={column}>{formatValue(record.data[column])}</td>
                     ))}
                   </tr>
@@ -137,6 +150,23 @@ export function ExportPage() {
             </button>
           ))}
         </div>
+        {columns.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <p className="muted">Columns to include</p>
+            <div className="inline" style={{ flexWrap: 'wrap' }}>
+              {columns.map((column) => (
+                <label key={column} className="inline" style={{ gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={!hiddenColumns.includes(column)}
+                    onChange={() => toggleColumn(column)}
+                  />
+                  {humanLabel(column)}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <p className="muted mono" style={{ marginTop: 12 }}>
           Large exports run in a background worker; the file appears below when it is ready.
         </p>

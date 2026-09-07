@@ -37,6 +37,7 @@ model User {
   exportJobs      ExportJob[]
   auditLogs       AuditLog[]
   emailAccounts   EmailAccount[]
+  corrections     Correction[]
 
   @@index([email])
 }
@@ -97,6 +98,9 @@ model Workspace {
   exportJobs   ExportJob[]
   auditLogs    AuditLog[]
   cameras      CameraCalibration[]
+  corrections  Correction[]
+  datasets     TrainingDataset[]
+  models       ModelVersion[]
 }
 
 model WorkspaceMember {
@@ -193,6 +197,7 @@ model FileObject {
   archive     FileObject?      @relation("ArchiveMember", fields: [archiveId], references: [id], onDelete: Cascade)
   members     FileObject[]     @relation("ArchiveMember")
   items       ProcessingItem[]
+  datasetItems DatasetItem[]
 
   @@index([archiveId])
   @@index([workspaceId, checksumSha256])
@@ -302,6 +307,7 @@ model ProcessingResult {
   supersedes ProcessingResult? @relation("ResultVersion", fields: [supersedesId], references: [id], onDelete: SetNull)
   supersededBy ProcessingResult? @relation("ResultVersion")
   records    CompilationRecord[]
+  corrections Correction[]
 
   @@index([itemId, version])
 }
@@ -492,4 +498,147 @@ model CameraCalibration {
 model ReferenceCounter {
   id      String @id // e.g. "DSX:2026"
   current Int    @default(0)
+}
+
+// ---------------------------------------------------------------------------
+// Training: human corrections, datasets, model versions, evaluations
+// ---------------------------------------------------------------------------
+
+enum CorrectionStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum DatasetStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+enum ModelStage {
+  CANDIDATE
+  ACTIVE
+  RETIRED
+}
+
+// A human correction of one field of one processing result. Corrections never
+// overwrite the stored result; they are the supervision signal for datasets.
+model Correction {
+  id          String           @id @default(uuid())
+  workspaceId String
+  userId      String
+  resultId    String
+  rowKey      String?
+  modality    Modality
+  field       String
+  originalValue Json?
+  correctedValue Json
+  note        String?
+  status      CorrectionStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  result    ProcessingResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  items     DatasetItem[]
+
+  @@index([workspaceId, modality, status])
+  @@index([resultId])
+}
+
+model TrainingDataset {
+  id          String   @id @default(uuid())
+  workspaceId String
+  modality    Modality
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  versions  DatasetVersion[]
+
+  @@unique([workspaceId, name])
+}
+
+// Immutable snapshot of labelled examples; training and evaluation always
+// reference a version, never the mutable dataset.
+model DatasetVersion {
+  id        String        @id @default(uuid())
+  datasetId String
+  version   Int
+  status    DatasetStatus @default(DRAFT)
+  itemCount Int           @default(0)
+  notes     String?
+  createdAt DateTime      @default(now())
+
+  dataset      TrainingDataset @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  items        DatasetItem[]
+  trainedModels ModelVersion[]
+  evaluations  EvaluationRun[]
+
+  @@unique([datasetId, version])
+}
+
+model DatasetItem {
+  id           String   @id @default(uuid())
+  versionId    String
+  correctionId String?
+  fileId       String?
+  sourceRef    String
+  split        String   @default("train")
+  input        Json
+  label        Json
+  createdAt    DateTime @default(now())
+
+  version    DatasetVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  correction Correction?    @relation(fields: [correctionId], references: [id], onDelete: SetNull)
+  file       FileObject?    @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([versionId, split])
+}
+
+// Registry of the models a workspace can run per modality, including
+// self-hosted checkpoints. Exactly one version per modality may be ACTIVE.
+model ModelVersion {
+  id            String     @id @default(uuid())
+  workspaceId   String
+  modality      Modality
+  name          String
+  version       String
+  provider      String
+  baseModel     String?
+  artifactUri   String?
+  stage         ModelStage @default(CANDIDATE)
+  parameters    Json       @default("{}")
+  metrics       Json       @default("{}")
+  notes         String?
+  trainedFromId String?
+  activatedAt   DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  trainedFrom DatasetVersion? @relation(fields: [trainedFromId], references: [id], onDelete: SetNull)
+  evaluations EvaluationRun[]
+
+  @@unique([workspaceId, modality, name, version])
+  @@index([workspaceId, modality, stage])
+}
+
+model EvaluationRun {
+  id               String   @id @default(uuid())
+  modelVersionId   String
+  datasetVersionId String
+  metrics          Json     @default("{}")
+  itemCount        Int      @default(0)
+  notes            String?
+  createdAt        DateTime @default(now())
+
+  modelVersion   ModelVersion   @relation(fields: [modelVersionId], references: [id], onDelete: Cascade)
+  datasetVersion DatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Cascade)
+
+  @@index([modelVersionId])
 }

@@ -60,7 +60,11 @@ export async function runExport(exportJobId: string): Promise<void> {
   });
 
   try {
-    const dataset = await loadDataset(job.compilationId);
+    const options = (job.options as Record<string, unknown> | null) ?? {};
+    const projection = Array.isArray(options.columns)
+      ? options.columns.filter((c): c is string => typeof c === 'string')
+      : undefined;
+    const dataset = await loadDataset(job.compilationId, projection);
     const generated = await generateExport(job.format, dataset);
     const storageKey = buildStorageKey({
       workspaceId: job.workspaceId,

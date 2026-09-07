@@ -13,10 +13,26 @@ export interface Dataset {
 const BATCH = 1000;
 
 /**
+ * Restricts the exported columns to a `show only …` projection. Matching is
+ * case-insensitive; unknown names are ignored and `Source` is always kept so a
+ * row can still be traced back to its original file. An empty intersection
+ * falls back to the full column set rather than exporting an empty sheet.
+ */
+function projectColumns(columns: string[], projection?: string[]): string[] {
+  if (!projection || projection.length === 0) return columns;
+  const wanted = new Set(projection.map((c) => c.trim().toLowerCase()));
+  const kept = columns.filter((c) => c === 'Source' || wanted.has(c.toLowerCase()));
+  return kept.length > 1 ? kept : columns;
+}
+
+/**
  * Exports always read the persisted compilation — the AI pipeline is never
  * re-run for an export.
  */
-export async function loadDataset(compilationId: string): Promise<Dataset> {
+export async function loadDataset(
+  compilationId: string,
+  projection?: string[],
+): Promise<Dataset> {
   const compilation = await prisma.compilation.findUnique({ where: { id: compilationId } });
   if (!compilation) throw notFound('Compilation not found');
 
@@ -48,7 +64,13 @@ export async function loadDataset(compilationId: string): Promise<Dataset> {
 
   if (!columns.includes('Source')) columns.unshift('Source');
 
-  return { compilation, columns, rows, geometries, generatedAt: new Date() };
+  return {
+    compilation,
+    columns: projectColumns(columns, projection),
+    rows,
+    geometries,
+    generatedAt: new Date(),
+  };
 }
 
 export const cellToString = (value: unknown): string => {

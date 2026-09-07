@@ -106,6 +106,17 @@ export interface ProcessingItem {
   file: FileRecord;
 }
 
+export interface Correction {
+  id: string;
+  field: string;
+  modality: Modality;
+  originalValue: unknown;
+  correctedValue: unknown;
+  note: string | null;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+  createdAt: string;
+}
+
 export interface Compilation {
   id: string;
   name: string;

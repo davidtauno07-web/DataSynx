@@ -6,6 +6,7 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
+import JSZip from 'jszip';
 import { ExportFormat, Modality } from '@prisma/client';
 
 import { createApp } from '../src/app.js';
@@ -55,6 +56,9 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
 
   afterAll(async () => {
     for (const id of workspaceIds) {
+      // Dataset items snapshot files and corrections with SET NULL, and Postgres
+      // re-checks their FKs mid-cascade, so drop datasets before the workspace.
+      await prisma.trainingDataset.deleteMany({ where: { workspaceId: id } });
       await prisma.workspace.deleteMany({ where: { id } });
     }
     await prisma.user.deleteMany({ where: { email: { endsWith: '@example.test' } } });
@@ -334,6 +338,140 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
         .set('Cookie', cookies)
         .send({ compilationId: randomUUID(), format: ExportFormat.CSV });
       expect(res.status).toBe(404);
+    });
+  });
+
+  describe('archives', () => {
+    it('keeps the ZIP as an original, ingests its members and processes them instead of the container', async () => {
+      const zip = new JSZip();
+      zip.file('invoices/march/one.txt', 'Supplier: Contoso\nTotal: 42.00 EUR\n');
+      zip.file('invoices/march/two.txt', 'Supplier: Fabrikam\nTotal: 84.00 EUR\n');
+      zip.file('../escape.txt', 'should never be extracted');
+      const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+
+      const upload = await request(app)
+        .post('/api/imports/upload')
+        .set('Cookie', cookies)
+        .attach('files', buffer, 'batch.zip');
+      expect(upload.status).toBe(201);
+
+      const archive = upload.body.files.find((f: { modality: string }) => f.modality === Modality.ARCHIVE);
+      expect(archive).toBeDefined();
+      expect(archive.extractedCount).toBe(2);
+      expect(archive.skipped).toHaveLength(1);
+
+      const members = await request(app)
+        .get(`/api/imports/files/${archive.id}/members`)
+        .set('Cookie', cookies);
+      expect(members.status).toBe(200);
+      expect(members.body.members.map((m: { archivePath: string }) => m.archivePath).sort()).toEqual([
+        'invoices/march/one.txt',
+        'invoices/march/two.txt',
+      ]);
+
+      const job = await request(app)
+        .post('/api/processing/jobs')
+        .set('Cookie', cookies)
+        .send({ name: 'Archive batch', fileIds: [archive.id] });
+      expect(job.status).toBe(201);
+      expect(job.body.job.totalItems).toBe(2);
+
+      const stored = await prisma.fileObject.findFirst({ where: { id: archive.id } });
+      expect(stored?.modality).toBe(Modality.ARCHIVE);
+    });
+  });
+
+  describe('training', () => {
+    it('turns accepted corrections into a dataset version and activates one model per modality', async () => {
+      const file = await prisma.fileObject.findFirstOrThrow({ where: { id: fileIds[0] } });
+      const job = await prisma.processingJob.create({
+        data: {
+          workspaceId,
+          userId,
+          name: 'Training fixture',
+          totalItems: 1,
+          reference: `DSXJOB-${randomUUID().slice(0, 8)}`,
+        },
+      });
+      const item = await prisma.processingItem.create({
+        data: { jobId: job.id, fileId: file.id, position: 0, modality: Modality.INVOICE },
+      });
+      const result = await prisma.processingResult.create({
+        data: {
+          itemId: item.id,
+          engine: 'invoice.v1',
+          engineVersion: 'test',
+          data: { Supplier: 'Nortwind' },
+        },
+      });
+
+      const correction = await request(app)
+        .post('/api/training/corrections')
+        .set('Cookie', cookies)
+        .send({ resultId: result.id, field: 'Supplier', correctedValue: 'Northwind' });
+      expect(correction.status).toBe(201);
+      expect(correction.body.correction.originalValue).toBe('Nortwind');
+
+      const unchanged = await prisma.processingResult.findFirstOrThrow({ where: { id: result.id } });
+      expect((unchanged.data as Record<string, unknown>).Supplier).toBe('Nortwind');
+
+      const accepted = await request(app)
+        .patch(`/api/training/corrections/${correction.body.correction.id}`)
+        .set('Cookie', cookies)
+        .send({ status: 'ACCEPTED' });
+      expect(accepted.status).toBe(200);
+
+      const dataset = await request(app)
+        .post('/api/training/datasets')
+        .set('Cookie', cookies)
+        .send({ name: `Invoices ${randomUUID().slice(0, 6)}`, modality: Modality.INVOICE });
+      expect(dataset.status).toBe(201);
+
+      const version = await request(app)
+        .post(`/api/training/datasets/${dataset.body.dataset.id}/versions`)
+        .set('Cookie', cookies)
+        .send({ notes: 'first cut' });
+      expect(version.status).toBe(201);
+      expect(version.body.version.itemCount).toBeGreaterThan(0);
+
+      const empty = await request(app)
+        .post(`/api/training/datasets/${dataset.body.dataset.id}/versions`)
+        .set('Cookie', cookies)
+        .send({});
+      expect(empty.status).toBe(400);
+
+      const model = await request(app)
+        .post('/api/training/models')
+        .set('Cookie', cookies)
+        .send({
+          modality: Modality.INVOICE,
+          name: 'invoice-extractor',
+          version: '1.0.0',
+          provider: 'local',
+          trainedFromId: version.body.version.id,
+        });
+      expect(model.status).toBe(201);
+      expect(model.body.model.stage).toBe('CANDIDATE');
+
+      const activated = await request(app)
+        .post(`/api/training/models/${model.body.model.id}/activate`)
+        .set('Cookie', cookies)
+        .send({});
+      expect(activated.status).toBe(200);
+      expect(activated.body.model.stage).toBe('ACTIVE');
+
+      const evaluation = await request(app)
+        .post(`/api/training/models/${model.body.model.id}/evaluations`)
+        .set('Cookie', cookies)
+        .send({ datasetVersionId: version.body.version.id, metrics: { accuracy: 0.91 } });
+      expect(evaluation.status).toBe(201);
+
+      const models = await request(app)
+        .get('/api/training/models')
+        .set('Cookie', cookies)
+        .query({ modality: Modality.INVOICE });
+      const active = models.body.models.filter((m: { stage: string }) => m.stage === 'ACTIVE');
+      expect(active).toHaveLength(1);
     });
   });
 

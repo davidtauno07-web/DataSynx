@@ -7,6 +7,7 @@ import { presignGet } from '../lib/storage.js';
 import { publishEvent } from '../events/bus.js';
 import { getProcessor } from '../processors/index.js';
 import { upsertCompilationRows } from '../modules/compilation/service.js';
+import { activeModelFor } from '../modules/training/service.js';
 import type { ProcessItemJob } from '../queue/queues.js';
 
 async function setStage(
@@ -109,10 +110,25 @@ export async function processItem(data: ProcessItemJob): Promise<void> {
 
     await setStage(item.id, data.workspaceId, data.jobId, ItemStatus.PROCESSING, processor.name, 15);
 
+    const activeModel = await activeModelFor(data.workspaceId, item.modality);
+
     const output = await processor.process({
       file: item.file,
       fileUrl,
-      options: (item.job.options as Record<string, unknown>) ?? {},
+      options: {
+        ...((item.job.options as Record<string, unknown>) ?? {}),
+        ...(activeModel
+          ? {
+              model: {
+                name: activeModel.name,
+                version: activeModel.version,
+                provider: activeModel.provider,
+                artifactUri: activeModel.artifactUri,
+                parameters: activeModel.parameters,
+              },
+            }
+          : {}),
+      },
       onStage: (stage, progress) =>
         setStage(item.id, data.workspaceId, data.jobId, ItemStatus.PROCESSING, stage, progress),
     });
