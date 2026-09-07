@@ -1,4 +1,4 @@
-import { ItemStatus, JobStatus, type ProcessingJob } from '@prisma/client';
+import { ItemStatus, JobStatus, Modality, type FileObject, type ProcessingJob } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { nextJobReference } from '../../lib/references.js';
@@ -26,6 +26,25 @@ export async function createJob(input: CreateJobInput): Promise<ProcessingJob> {
     throw notFound('One or more selected files could not be found in this workspace');
   }
 
+  // Containers have no pipeline of their own: selecting a ZIP means processing
+  // the files that were extracted from it.
+  const archiveIds = files.filter((f) => f.modality === Modality.ARCHIVE).map((f) => f.id);
+  const members = archiveIds.length
+    ? await prisma.fileObject.findMany({
+        where: { archiveId: { in: archiveIds }, modality: { not: Modality.ARCHIVE } },
+        orderBy: [{ archivePath: 'asc' }],
+      })
+    : [];
+
+  const byId = new Map<string, FileObject>();
+  for (const file of [...files.filter((f) => f.modality !== Modality.ARCHIVE), ...members]) {
+    byId.set(file.id, file);
+  }
+  const targets = [...byId.values()];
+  if (targets.length === 0) {
+    throw badRequest('The selected archives contain no processable files');
+  }
+
   const job = await prisma.processingJob.create({
     data: {
       reference: await nextJobReference(),
@@ -33,10 +52,10 @@ export async function createJob(input: CreateJobInput): Promise<ProcessingJob> {
       userId: input.userId,
       importId: input.importId,
       name: input.name,
-      totalItems: files.length,
+      totalItems: targets.length,
       options: toJson(input.options),
       items: {
-        create: files.map((file, index) => ({
+        create: targets.map((file, index) => ({
           fileId: file.id,
           position: index + 1,
           modality: file.modality,

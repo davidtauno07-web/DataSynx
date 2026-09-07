@@ -9,6 +9,10 @@ interface UploadedFile {
   modality: string;
   sizeBytes: number;
   duplicateOf?: string | null;
+  archivePath?: string;
+  archiveOf?: string;
+  extractedCount?: number;
+  skipped?: { archivePath: string; reason: string }[];
 }
 
 interface Props {
@@ -73,7 +77,8 @@ export function ManualUpload({ onImported }: Props) {
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
       >
-        <p>Drop files here — PDF, DOCX, TXT, CSV, XLSX, images, audio, video.</p>
+        <p>Drop files, folders as ZIP archives, or a whole batch here.</p>
+        <p className="muted">DataSynx detects each file's type and routes it to the right pipeline.</p>
         <button onClick={() => inputRef.current?.click()}>Choose files</button>
         <input
           ref={inputRef}
@@ -121,6 +126,15 @@ export function ManualUpload({ onImported }: Props) {
                 <span className="mono">{file.reference}</span>
                 <span>{file.originalName}</span>
                 <span className="pill">{file.modality}</span>
+                {file.archivePath && <span className="muted mono">{file.archivePath}</span>}
+                {file.extractedCount !== undefined && (
+                  <span className="pill">{file.extractedCount} file(s) extracted</span>
+                )}
+                {file.skipped?.length ? (
+                  <span className="pill warn" title={file.skipped.map((s) => `${s.archivePath}: ${s.reason}`).join('\n')}>
+                    {file.skipped.length} entry(s) skipped
+                  </span>
+                ) : null}
                 {file.duplicateOf && <span className="pill warn">Possible duplicate of {file.duplicateOf}</span>}
               </li>
             ))}

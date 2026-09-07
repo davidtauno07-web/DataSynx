@@ -28,6 +28,7 @@ const DRONE_HINTS = /(drone|dji|uav|aerial|mavic|phantom|orthophoto)/i;
 const CCTV_HINTS = /(cctv|surveillance|camera|cam[-_ ]?\d|nvr|dvr|security)/i;
 
 export const ACCEPTED_EXTENSIONS = [
+  'zip',
   'pdf', 'doc', 'docx', 'txt', 'csv', 'xls', 'xlsx', 'rtf', 'eml', 'msg',
   'png', 'jpg', 'jpeg', 'tif', 'tiff', 'webp', 'heic',
   'wav', 'mp3', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'webm',
@@ -52,6 +53,9 @@ export function routeModality(sig: FileSignature): Modality {
   if (sig.hint === 'email') return Modality.EMAIL;
   if (sig.hint === 'cctv') return Modality.CCTV;
   if (sig.hint === 'drone') return Modality.DRONE;
+
+  // A container is never a processing item; its members are ingested separately.
+  if (ext === 'zip') return Modality.ARCHIVE;
 
   if (EMAIL_MIME.has(mime) || ext === 'eml' || ext === 'msg') return Modality.EMAIL;
 
@@ -87,5 +91,6 @@ export const modalityLabel: Record<Modality, string> = {
   IMAGE: 'Image',
   CCTV: 'CCTV',
   DRONE: 'Drone',
+  ARCHIVE: 'Archive',
   UNKNOWN: 'Unrecognised',
 };

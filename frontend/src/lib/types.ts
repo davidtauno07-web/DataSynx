@@ -1,4 +1,13 @@
-export type Modality = 'DOCUMENT' | 'INVOICE' | 'EMAIL' | 'AUDIO' | 'IMAGE' | 'CCTV' | 'DRONE' | 'UNKNOWN';
+export type Modality =
+  | 'DOCUMENT'
+  | 'INVOICE'
+  | 'EMAIL'
+  | 'AUDIO'
+  | 'IMAGE'
+  | 'CCTV'
+  | 'DRONE'
+  | 'ARCHIVE'
+  | 'UNKNOWN';
 
 export type ItemStatus =
   | 'IMPORTED'
@@ -35,6 +44,9 @@ export interface FileRecord {
   modality: Modality;
   scanStatus: string;
   duplicateOfId: string | null;
+  archiveId?: string | null;
+  archivePath?: string | null;
+  archive?: { id: string; reference: string; originalName: string } | null;
   createdAt: string;
 }
 

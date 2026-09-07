@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { ImportSource, Modality } from '@prisma/client';
+import { ImportSource, Modality, type FileObject } from '@prisma/client';
 import { env } from '../../config/env.js';
 import { prisma, serialize } from '../../lib/prisma.js';
 import { badRequest, notFound } from '../../lib/errors.js';
@@ -10,7 +10,8 @@ import { asyncHandler } from '../../middleware/asyncHandler.js';
 import { authOf, requireAuth } from '../../middleware/auth.js';
 import { apiLimiter, uploadLimiter } from '../../middleware/rateLimit.js';
 import { recordAudit, requestContext } from '../audit/service.js';
-import { createImport, ingestFile } from '../ingestion/service.js';
+import { createImport, ingestArchive, ingestFile } from '../ingestion/service.js';
+import { isArchiveName } from '../ingestion/archive.js';
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -43,12 +44,60 @@ importRouter.post(
       label: body.label ?? `${files.length} file(s)`,
     });
 
-    const accepted: unknown[] = [];
+    interface AcceptedFile {
+      id: string;
+      reference: string;
+      originalName: string;
+      modality: Modality;
+      sizeBytes: number;
+      scanStatus: string;
+      duplicateOf: string | null;
+      archivePath?: string;
+      archiveOf?: string;
+      extractedCount?: number;
+      skipped?: { archivePath: string; reason: string }[];
+    }
+
+    const accepted: AcceptedFile[] = [];
     const rejected: { originalName: string; error: string }[] = [];
+
+    const describe = (stored: FileObject, duplicateOf: string | null): AcceptedFile => ({
+      id: stored.id,
+      reference: stored.reference,
+      originalName: stored.originalName,
+      modality: stored.modality,
+      sizeBytes: Number(stored.sizeBytes),
+      scanStatus: stored.scanStatus,
+      duplicateOf,
+      ...(stored.archivePath ? { archivePath: stored.archivePath } : {}),
+    });
 
     // A rejected file never aborts the batch.
     for (const file of files) {
       try {
+        // A ZIP is a container: it is stored, expanded, and each member is
+        // ingested and routed on its own.
+        if (isArchiveName(file.originalname) && !body.modality) {
+          const expanded = await ingestArchive({
+            workspaceId: auth.workspaceId,
+            userId: auth.sub,
+            importId: record.id,
+            file,
+          });
+          accepted.push({
+            ...describe(expanded.archive, null),
+            extractedCount: expanded.members.length,
+            skipped: expanded.skipped,
+          });
+          for (const member of expanded.members) {
+            accepted.push({
+              ...describe(member.file, member.duplicateOf),
+              archiveOf: expanded.archive.reference,
+            });
+          }
+          continue;
+        }
+
         const { file: stored, duplicateOf } = await ingestFile({
           workspaceId: auth.workspaceId,
           userId: auth.sub,
@@ -57,15 +106,7 @@ importRouter.post(
           modalityOverride: body.modality,
           hint: body.source === ImportSource.VOICE_RECORDER ? 'voice' : undefined,
         });
-        accepted.push({
-          id: stored.id,
-          reference: stored.reference,
-          originalName: stored.originalName,
-          modality: stored.modality,
-          sizeBytes: Number(stored.sizeBytes),
-          scanStatus: stored.scanStatus,
-          duplicateOf,
-        });
+        accepted.push(describe(stored, duplicateOf));
       } catch (err) {
         rejected.push({
           originalName: file.originalname,
@@ -215,14 +256,53 @@ importRouter.get(
           sizeBytes: true,
           scanStatus: true,
           duplicateOfId: true,
+          archiveId: true,
+          archivePath: true,
           createdAt: true,
           import: { select: { id: true, reference: true, source: true } },
-          _count: { select: { items: true } },
+          archive: { select: { id: true, reference: true, originalName: true } },
+          _count: { select: { items: true, members: true } },
         },
       }),
     ]);
 
     res.json({ total, page: query.page, pageSize: query.pageSize, files: serialize(files) });
+  }),
+);
+
+/** Archive lineage: every file extracted from this container. */
+importRouter.get(
+  '/files/:fileId/members',
+  apiLimiter,
+  asyncHandler(async (req, res) => {
+    const auth = authOf(req);
+    const { fileId } = z.object({ fileId: z.string().uuid() }).parse(req.params);
+    const archive = await prisma.fileObject.findFirst({
+      where: { id: fileId, workspaceId: auth.workspaceId },
+      select: { id: true, reference: true, originalName: true, modality: true, metadata: true },
+    });
+    if (!archive) throw notFound('File not found');
+
+    const members = await prisma.fileObject.findMany({
+      where: { archiveId: archive.id },
+      orderBy: { archivePath: 'asc' },
+      select: {
+        id: true,
+        reference: true,
+        originalName: true,
+        archivePath: true,
+        modality: true,
+        sizeBytes: true,
+        duplicateOfId: true,
+        items: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, status: true, jobId: true },
+        },
+      },
+    });
+
+    res.json({ archive: serialize(archive), members: serialize(members) });
   }),
 );
 

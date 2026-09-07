@@ -7,6 +7,7 @@ import { nextFileReference, nextImportReference } from '../../lib/references.js'
 import { unprocessable } from '../../lib/errors.js';
 import { routeModality, type FileSignature } from '../../domain/modality.js';
 import { logger } from '../../lib/logger.js';
+import { expandArchive } from './archive.js';
 import { validateUpload } from './validation.js';
 import { scanBuffer } from './scanner.js';
 import { toJson } from '../../lib/json.js';
@@ -19,6 +20,8 @@ export interface IngestInput {
   hint?: FileSignature['hint'];
   modalityOverride?: Modality;
   metadata?: Record<string, unknown>;
+  /** Set when the file was extracted from a container. */
+  archive?: { id: string; path: string };
 }
 
 export interface IngestedFile {
@@ -104,6 +107,8 @@ export async function ingestFile(input: IngestInput): Promise<IngestedFile> {
       metadata: toJson(input.metadata),
       scanStatus,
       duplicateOfId: existing?.id ?? null,
+      archiveId: input.archive?.id ?? null,
+      archivePath: input.archive?.path ?? null,
     },
   });
 
@@ -113,4 +118,74 @@ export async function ingestFile(input: IngestInput): Promise<IngestedFile> {
   );
 
   return { file, duplicateOf: existing?.reference ?? null };
+}
+
+export interface IngestedArchive {
+  archive: FileObject;
+  members: IngestedFile[];
+  skipped: { archivePath: string; reason: string }[];
+}
+
+/**
+ * A ZIP is stored untouched as its own record and every member is ingested
+ * with lineage back to it. One unusable member never aborts the archive.
+ */
+export async function ingestArchive(input: {
+  workspaceId: string;
+  userId: string;
+  importId: string;
+  file: { originalname: string; mimetype: string; size: number; buffer: Buffer };
+}): Promise<IngestedArchive> {
+  const expansion = await expandArchive(input.file.buffer);
+
+  const { file: archive } = await ingestFile({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    importId: input.importId,
+    file: input.file,
+    modalityOverride: Modality.ARCHIVE,
+    metadata: {
+      archive: {
+        entryCount: expansion.members.length,
+        skippedCount: expansion.skipped.length,
+        extractedBytes: expansion.totalBytes,
+      },
+    },
+  });
+
+  const members: IngestedFile[] = [];
+  const skipped = [...expansion.skipped];
+
+  for (const member of expansion.members) {
+    try {
+      members.push(
+        await ingestFile({
+          workspaceId: input.workspaceId,
+          userId: input.userId,
+          importId: input.importId,
+          file: {
+            originalname: member.fileName,
+            // Empty so validation trusts the sniffed signature, not the container.
+            mimetype: '',
+            size: member.sizeBytes,
+            buffer: member.buffer,
+          },
+          archive: { id: archive.id, path: member.archivePath },
+          metadata: { archivePath: member.archivePath, archiveReference: archive.reference },
+        }),
+      );
+    } catch (err) {
+      skipped.push({
+        archivePath: member.archivePath,
+        reason: err instanceof Error ? err.message : 'File rejected',
+      });
+    }
+  }
+
+  logger.info(
+    { archive: archive.reference, extracted: members.length, skipped: skipped.length },
+    'archive expanded',
+  );
+
+  return { archive, members, skipped };
 }

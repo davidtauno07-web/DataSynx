@@ -131,6 +131,7 @@ enum Modality {
   IMAGE
   CCTV
   DRONE
+  ARCHIVE
   UNKNOWN
 }
 
@@ -178,6 +179,10 @@ model FileObject {
   metadata       Json     @default("{}")
   scanStatus     ScanStatus @default(SKIPPED)
   duplicateOfId  String?
+  // Set on files extracted from a container (ZIP): the archive and the
+  // member path inside it, e.g. `invoices/march/01.pdf`.
+  archiveId      String?
+  archivePath    String?
   createdAt      DateTime @default(now())
 
   workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -185,8 +190,11 @@ model FileObject {
   import      Import?          @relation(fields: [importId], references: [id], onDelete: SetNull)
   duplicateOf FileObject?      @relation("FileDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
   duplicates  FileObject[]     @relation("FileDuplicate")
+  archive     FileObject?      @relation("ArchiveMember", fields: [archiveId], references: [id], onDelete: Cascade)
+  members     FileObject[]     @relation("ArchiveMember")
   items       ProcessingItem[]
 
+  @@index([archiveId])
   @@index([workspaceId, checksumSha256])
   @@index([workspaceId, createdAt])
 }

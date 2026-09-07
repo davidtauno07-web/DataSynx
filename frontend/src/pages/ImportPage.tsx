@@ -11,7 +11,7 @@ import { VoiceRecorder } from './import/VoiceRecorder';
 
 interface FilesResponse {
   total: number;
-  files: (FileRecord & { _count?: { items: number } })[];
+  files: (FileRecord & { _count?: { items: number; members?: number } })[];
 }
 
 export function ImportPage() {
@@ -120,6 +120,14 @@ export function ImportPage() {
                     <td className="mono">{file.reference}</td>
                     <td>
                       {file.originalName}
+                      {file.archive && (
+                        <div className="muted mono">
+                          {file.archive.originalName} › {file.archivePath}
+                        </div>
+                      )}
+                      {file.modality === 'ARCHIVE' && (
+                        <div className="pill">{file._count?.members ?? 0} extracted file(s)</div>
+                      )}
                       {file.duplicateOfId && <div className="pill warn">Possible duplicate</div>}
                     </td>
                     <td>
