@@ -1,4 +1,4 @@
-"""Wire contract shared with the Node API (mirrors apps/api/src/domain/results.ts)."""
+"""Wire contract shared with the Node API (mirrors backend/api/src/domain/results.ts)."""
 
 from __future__ import annotations
 

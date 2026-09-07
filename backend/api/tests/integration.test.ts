@@ -18,6 +18,11 @@ const app = createApp();
 const password = `Str0ng-${randomUUID().slice(0, 8)}!`;
 const emailOf = (tag: string) => `dsx-${tag}-${randomUUID().slice(0, 8)}@example.test`;
 
+function setCookies(res: request.Response): string[] {
+  const header = res.get('set-cookie');
+  return typeof header === 'string' ? [header] : (header ?? []);
+}
+
 async function infrastructureUp(): Promise<boolean> {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -42,7 +47,7 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
       .post('/api/auth/register')
       .send({ name: 'Primary Tester', email: primary, password });
     expect(res.status).toBe(201);
-    cookies = res.get('set-cookie') ?? [];
+    cookies = setCookies(res);
     workspaceId = res.body.workspaceId as string;
     userId = res.body.user.id as string;
     workspaceIds.push(workspaceId);
@@ -101,7 +106,7 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
         .post('/api/auth/register')
         .send({ name: 'Reset Tester', email, password });
       workspaceIds.push(registered.body.workspaceId as string);
-      const oldCookies = registered.get('set-cookie') ?? [];
+      const oldCookies = setCookies(registered);
 
       const forgot = await request(app).post('/api/auth/password/forgot').send({ email });
       expect(forgot.status).toBe(200);
@@ -219,7 +224,7 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
         .post('/api/auth/register')
         .send({ name: 'Outsider', email: emailOf('outsider'), password });
       workspaceIds.push(outsider.body.workspaceId as string);
-      const outsiderCookies = outsider.get('set-cookie') ?? [];
+      const outsiderCookies = setCookies(outsider);
 
       const res = await request(app)
         .post('/api/processing/jobs')

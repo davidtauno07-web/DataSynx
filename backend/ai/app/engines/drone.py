@@ -43,6 +43,26 @@ def _ratio(value: Any) -> float:
     return float(value.num) / float(value.den) if getattr(value, "den", 0) else float(value)
 
 
+# EXIF FocalPlaneResolutionUnit → millimetres per unit.
+_RESOLUTION_UNIT_MM = {2: 25.4, 3: 10.0, 4: 1.0}
+
+
+def _sensor_width_mm(tags: dict[str, Any], image_width_px: float | None) -> float | None:
+    """Sensor width from EXIF focal-plane resolution: pixels / (pixels per unit) × mm per unit."""
+    resolution_tag = tags.get("EXIF FocalPlaneXResolution")
+    unit_tag = tags.get("EXIF FocalPlaneResolutionUnit")
+    if resolution_tag is None or unit_tag is None or not image_width_px:
+        return None
+    try:
+        pixels_per_unit = _ratio(resolution_tag.values[0])
+        mm_per_unit = _RESOLUTION_UNIT_MM.get(int(unit_tag.values[0]))
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+    if mm_per_unit is None or pixels_per_unit <= 0:
+        return None
+    return round(float(image_width_px) / pixels_per_unit * mm_per_unit, 4)
+
+
 def read_metadata(path: Path) -> dict[str, Any]:
     """EXIF/XMP metadata; absent values stay absent."""
     exifread = optional_module("exifread")
@@ -89,6 +109,10 @@ def read_metadata(path: Path) -> dict[str, Any]:
                 meta[label] = _ratio(raw.values[0]) if hasattr(raw.values[0], "den") else str(raw)
             except (AttributeError, IndexError, TypeError):
                 meta[label] = str(raw)
+
+    sensor_width = _sensor_width_mm(tags, meta.get("imageWidth"))
+    if sensor_width is not None:
+        meta["sensorWidthMm"] = sensor_width
     return {k: v for k, v in meta.items() if v is not None}
 
 
@@ -130,7 +154,7 @@ class DroneEngine(Engine):
         latitude = metadata.get("latitude")
         longitude = metadata.get("longitude")
         altitude = options.get("altitudeM", metadata.get("altitude"))
-        sensor_width = options.get("sensorWidthMm")
+        sensor_width = options.get("sensorWidthMm", metadata.get("sensorWidthMm"))
         focal_length = options.get("focalLengthMm", metadata.get("focalLengthMm"))
         image_width = options.get("imageWidthPx", metadata.get("imageWidth"))
 

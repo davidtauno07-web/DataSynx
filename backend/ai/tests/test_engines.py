@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import piexif
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.engines import ENGINES
 from app.engines.audio import voice_activity
 from app.engines.cctv import CCTVEngine
 from app.engines.document import classify, extract_text
+from app.engines.drone import read_metadata
 from app.engines.email import extract_entities, strip_html
 from app.engines.invoice import parse_amount, parse_date, rule_based_extract, validate
 from app.engines.vision import Detection, Track
@@ -208,6 +211,30 @@ def test_unknown_engine_returns_404() -> None:
         json={"fileReference": "x", "originalName": "y", "mimeType": "text/plain"},
     )
     assert response.status_code == 404
+
+
+def _write_jpeg_with_exif(path: Path, exif: dict[int, object]) -> Path:
+    Image.new("RGB", (64, 48), "gray").save(path, "JPEG")
+    piexif.insert(piexif.dump({"Exif": exif}), str(path))
+    return path
+
+
+def test_drone_derives_sensor_width_from_exif_focal_plane_resolution(tmp_path: Path) -> None:
+    """A 4000 px wide frame at 400 px/mm is a 10 mm sensor — derived, not assumed."""
+    path = _write_jpeg_with_exif(
+        tmp_path / "frame.jpg",
+        {
+            piexif.ExifIFD.PixelXDimension: 4000,
+            piexif.ExifIFD.FocalPlaneXResolution: (10160, 1),  # px per inch
+            piexif.ExifIFD.FocalPlaneResolutionUnit: 2,
+        },
+    )
+    assert read_metadata(path)["sensorWidthMm"] == pytest.approx(10.0, abs=0.01)
+
+
+def test_drone_omits_sensor_width_when_exif_lacks_focal_plane_resolution(tmp_path: Path) -> None:
+    path = _write_jpeg_with_exif(tmp_path / "plain.jpg", {piexif.ExifIFD.PixelXDimension: 4000})
+    assert "sensorWidthMm" not in read_metadata(path)
 
 
 def _straight_track() -> Track:

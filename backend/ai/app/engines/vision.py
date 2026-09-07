@@ -64,7 +64,7 @@ class UltralyticsDetector:
         module = optional_module("ultralytics")
         if module is None:
             raise EngineUnavailable(
-                "Object detection is unavailable: install 'ultralytics' (see apps/ai/requirements-optional.txt) "
+                "Object detection is unavailable: install 'ultralytics' (see backend/ai/requirements-optional.txt) "
                 "and provide the model weights configured by AI_DETECTION_MODEL"
             )
         cfg = settings()

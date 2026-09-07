@@ -99,7 +99,7 @@ def transcribe(path: Path) -> tuple[list[dict[str, Any]], str, list[str]]:
     module = optional_module("faster_whisper")
     if module is None:
         raise EngineUnavailable(
-            "Speech recognition is unavailable: install 'faster-whisper' (see apps/ai/requirements-optional.txt)"
+            "Speech recognition is unavailable: install 'faster-whisper' (see backend/ai/requirements-optional.txt)"
         )
     cfg = settings()
     device = resolve_device()

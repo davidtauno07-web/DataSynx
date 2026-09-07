@@ -4,24 +4,24 @@
   "version": "0.1.0",
   "description": "DataSynx — multimodal data processing, structuring, compilation and export platform",
   "workspaces": [
-    "apps/api",
-    "apps/web"
+    "backend/api",
+    "frontend"
   ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "concurrently -n api,worker,web -c gray,white,cyan \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\"",
-    "dev:api": "npm run dev --workspace apps/api",
-    "dev:worker": "npm run dev:worker --workspace apps/api",
-    "dev:web": "npm run dev --workspace apps/web",
-    "build": "npm run build --workspace apps/api && npm run build --workspace apps/web",
-    "lint": "npm run lint --workspace apps/api && npm run lint --workspace apps/web",
-    "typecheck": "npm run typecheck --workspace apps/api && npm run typecheck --workspace apps/web",
-    "test": "npm run test --workspace apps/api && npm run test --workspace apps/web",
-    "db:migrate": "npm run db:migrate --workspace apps/api",
-    "db:deploy": "npm run db:deploy --workspace apps/api",
-    "db:generate": "npm run db:generate --workspace apps/api",
+    "dev:api": "npm run dev --workspace backend/api",
+    "dev:worker": "npm run dev:worker --workspace backend/api",
+    "dev:web": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace backend/api && npm run build --workspace frontend",
+    "lint": "npm run lint --workspace backend/api && npm run lint --workspace frontend",
+    "typecheck": "npm run typecheck --workspace backend/api && npm run typecheck --workspace frontend",
+    "test": "npm run test --workspace backend/api && npm run test --workspace frontend",
+    "db:migrate": "npm run db:migrate --workspace backend/api",
+    "db:deploy": "npm run db:deploy --workspace backend/api",
+    "db:generate": "npm run db:generate --workspace backend/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },
