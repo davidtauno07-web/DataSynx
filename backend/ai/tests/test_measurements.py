@@ -13,6 +13,7 @@ from app.measure.kinematics import (
     direction_degrees,
     load_calibration,
     speed,
+    speed_kmh,
     to_world,
     track_distance,
 )
@@ -65,6 +66,14 @@ def test_speed_from_distance_and_time() -> None:
     assert speed(37.4, 12.0) == pytest.approx(3.1167, rel=1e-3)
     with pytest.raises(ValueError):
         speed(10, 0)
+
+
+def test_speed_is_reported_in_kilometres_per_hour() -> None:
+    assert speed_kmh(100.0, 10.0) == pytest.approx(36.0)
+    result = run_operation("speed", {"distanceM": 100, "seconds": 10})
+    assert result["unit"] == "km/h"
+    assert result["value"] == pytest.approx(36.0)
+    assert result["metresPerSecond"] == pytest.approx(10.0)
 
 
 def test_uniform_scale_calibration_measures_track() -> None:

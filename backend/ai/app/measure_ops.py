@@ -95,12 +95,12 @@ def _speed(params: dict[str, Any]) -> dict[str, Any]:
     value = speed(distance, seconds)
     return {
         "parameter": "speed",
-        "value": round(value, 3),
-        "unit": "m/s",
+        "value": round(value * 3.6, 2),
+        "unit": "km/h",
         "status": "MEASURED",
-        "method": method,
+        "method": f"{method} × 3.6",
         "distanceM": round(distance, 3),
-        "kmh": round(value * 3.6, 2),
+        "metresPerSecond": round(value, 3),
     }
 
 

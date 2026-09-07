@@ -23,7 +23,7 @@ const result: ProcessingResult = {
       subject: 'Vehicle #1',
       parameter: 'speed',
       value: null,
-      unit: 'm/s',
+      unit: 'km/h',
       status: 'UNAVAILABLE',
       method: null,
       source: null,

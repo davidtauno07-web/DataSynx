@@ -12,6 +12,13 @@ from typing import Any
 
 from ..download import download, suffix_for
 from ..errors import EngineUnavailable
+from ..measure.events import (
+    TrackEvent,
+    important_moments,
+    occupancy_timeline,
+    peak_occupancy,
+    track_events,
+)
 from ..measure.geo import offset_coordinate
 from ..measure.kinematics import (
     Calibration,
@@ -19,7 +26,7 @@ from ..measure.kinematics import (
     compass,
     direction_degrees,
     load_calibration,
-    speed,
+    speed_kmh,
     to_world,
     track_distance,
 )
@@ -34,11 +41,12 @@ COLUMNS = [
     "Exit time",
     "Duration",
     "Direction",
-    "Distance",
-    "Speed",
+    "Distance (m)",
+    "Speed (km/h)",
     "Dwell time",
     "Line crossings",
     "Zone",
+    "Events",
     "Frames",
 ]
 
@@ -149,6 +157,8 @@ class CCTVEngine(Engine):
         measurements: list[Measurement] = []
         counts: dict[str, int] = {}
         trajectories: list[dict[str, Any]] = []
+        events: list[TrackEvent] = []
+        intervals: list[tuple[str, float, float]] = []
 
         for index, track in enumerate(tracks, start=1):
             name = object_name(track, index)
@@ -158,12 +168,12 @@ class CCTVEngine(Engine):
             duration = track.duration
 
             distance_m: float | None = None
-            speed_ms: float | None = None
+            speed_km_h: float | None = None
             if calibration.available:
                 try:
                     distance_m = round(track_distance(calibration, [d.centroid for d in track.detections]), 2)
                     if duration > 0:
-                        speed_ms = round(speed(distance_m, duration), 2)
+                        speed_km_h = round(speed_kmh(distance_m, duration), 2)
                 except (CalibrationError, ValueError) as exc:
                     warnings.append(f"{name}: measurement failed ({exc})")
 
@@ -188,13 +198,13 @@ class CCTVEngine(Engine):
                 Measurement(
                     subject=name,
                     parameter="speed",
-                    value=speed_ms,
-                    unit="m/s" if speed_ms is not None else None,
-                    status="MEASURED" if speed_ms is not None else "UNAVAILABLE",
-                    method="distance/time" if speed_ms is not None else None,
+                    value=speed_km_h,
+                    unit="km/h" if speed_km_h is not None else None,
+                    status="MEASURED" if speed_km_h is not None else "UNAVAILABLE",
+                    method="distance/time × 3.6" if speed_km_h is not None else None,
                     source="tracking",
                     quality=calibration.quality,
-                    reason=None if speed_ms is not None else reason or "Track duration is unknown",
+                    reason=None if speed_km_h is not None else reason or "Track duration is unknown",
                 )
             )
             measurements.append(
@@ -210,6 +220,10 @@ class CCTVEngine(Engine):
             )
 
             line_hits = crossings(track, lines)
+            samples = [(d.timestamp, d.centroid, d.box) for d in track.detections]
+            track_timeline = track_events(name, track.label, samples, lines, zones)
+            events.extend(track_timeline)
+            intervals.append((name, track.first.timestamp, track.last.timestamp))
             trajectory = [
                 {"t": round(d.timestamp, 2), "x": round(d.centroid[0], 1), "y": round(d.centroid[1], 1)}
                 for d in track.detections
@@ -226,17 +240,19 @@ class CCTVEngine(Engine):
                         "Exit time": round(track.last.timestamp, 2),
                         "Duration": round(duration, 2),
                         "Direction": f"{compass(heading)} ({heading:.0f}°)",
-                        "Distance": distance_m,
-                        "Speed": speed_ms,
+                        "Distance (m)": distance_m,
+                        "Speed (km/h)": speed_km_h,
                         "Dwell time": round(duration, 2),
                         "Line crossings": ", ".join(line_hits) or None,
                         "Zone": zone_of(track, zones),
+                        "Events": len(track_timeline),
                         "Frames": len(track.detections),
                     },
                     geometry=self._track_geometry(track, calibration, anchor),
                 )
             )
 
+        timeline = occupancy_timeline(intervals)
         summary: dict[str, Any] = {
             "Source": request.originalName,
             "Frames analysed": meta["frames"],
@@ -246,7 +262,12 @@ class CCTVEngine(Engine):
             "Tracked objects": len(tracks),
             "Counts by class": counts,
             "Calibration": calibration.quality if calibration.available else "unavailable",
+            "Speed unit": "km/h",
             "Trajectories": trajectories,
+            "Events": [event.as_dict() for event in sorted(events, key=lambda e: e.time)],
+            "Important moments": [event.as_dict() for event in important_moments(events)],
+            "Occupancy timeline": timeline,
+            "Peak occupancy": peak_occupancy(timeline),
         }
         return self.output(
             summary=summary, columns=COLUMNS, rows=rows, measurements=measurements, warnings=warnings

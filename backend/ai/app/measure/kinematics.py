@@ -80,6 +80,11 @@ def speed(distance_m: float, seconds: float) -> float:
     return distance_m / seconds
 
 
+def speed_kmh(distance_m: float, seconds: float) -> float:
+    """Speed in km/h, the unit every user-facing CCTV surface reports."""
+    return speed(distance_m, seconds) * 3.6
+
+
 def direction_degrees(start: tuple[float, float], end: tuple[float, float]) -> float:
     """Screen/ground bearing in degrees where 0° = north (negative y is up)."""
     dx = end[0] - start[0]
