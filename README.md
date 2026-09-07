@@ -72,10 +72,10 @@ Three runtimes:
 
 | Runtime | Role |
 | --- | --- |
-| `apps/api` (Node 20 + TypeScript + Express + Prisma) | HTTP API, auth, ingestion, queues, compilation, exports |
-| `apps/api` worker (BullMQ) | Asynchronous processing and export jobs |
-| `apps/ai` (Python 3.10 + FastAPI) | Perception engines (OCR, ASR, detection/tracking) and deterministic measurement engines |
-| `apps/web` (React 18 + Vite + TypeScript) | Import / Processing / Export UI |
+| `backend/api` (Node 20 + TypeScript + Express + Prisma) | HTTP API, auth, ingestion, queues, compilation, exports |
+| `backend/api` worker (BullMQ) | Asynchronous processing and export jobs |
+| `backend/ai` (Python 3.10 + FastAPI) | Perception engines (OCR, ASR, detection/tracking) and deterministic measurement engines |
+| `frontend` (React 18 + Vite + TypeScript) | Import / Processing / Export UI |
 
 Modalities never mix automatically. A CCTV video is only ever handled by the CCTV
 pipeline; shared infrastructure (ingestion, storage, queueing, compilation, export) is
@@ -84,9 +84,11 @@ the only thing they have in common.
 ## Repository layout
 
 ```
-apps/api        Express API, Prisma schema, BullMQ workers, export generators
-apps/ai         FastAPI AI service: engines/ (perception) and measure/ (mathematics)
-apps/web        React frontend (three pages + auth)
+frontend/       React SPA (Import / Processing / Export + auth)
+backend/api/    Express API, BullMQ workers, export generators
+backend/ai/     FastAPI AI service: engines/ (perception) and measure/ (mathematics)
+database/       Prisma schema and SQL migrations
+docs/           Architecture, operations and API documentation
 docker-compose.yml   PostgreSQL 16, Redis 7, MinIO
 ```
 
@@ -109,7 +111,7 @@ npm run dev                     # api + worker + web (concurrently)
 Python AI service (separate terminal):
 
 ```bash
-cd apps/ai
+cd backend/ai
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 # optional, heavy: OpenCV, Ultralytics, faster-whisper, pytesseract
@@ -152,7 +154,7 @@ processing”** in the UI. The two modes are never mixed.
 
 ## Database
 
-PostgreSQL via Prisma (`apps/api/prisma/schema.prisma`). Core entities: `User`,
+PostgreSQL via Prisma (`database/schema.prisma`). Core entities: `User`,
 `Session`, `PasswordReset`, `AuthProvider`, `Workspace`, `WorkspaceMember`, `Import`,
 `File`, `ProcessingJob`, `ProcessingItem`, `ProcessingResult`, `Compilation`,
 `CompilationRecord`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
@@ -220,7 +222,7 @@ Missing metadata is reported as missing. Nothing is invented.
 
 ## Measurement engine
 
-Deterministic only (`apps/ai/app/measure/`):
+Deterministic only (`backend/ai/app/measure/`):
 
 - `geo.py` — WGS84 geodesic distance, bearing/compass, polygon area and perimeter, path length, CRS transformation, ground sample distance (`pyproj`, `shapely`).
 - `kinematics.py` — camera calibration (uniform scale or 4+ point homography solved with NumPy SVD), pixel→world transformation, track distance, speed, direction.
@@ -263,7 +265,7 @@ to the caller's workspace.
 npm run lint && npm run typecheck && npm run test    # API + web
 npm run build
 
-cd apps/ai
+cd backend/ai
 .venv/bin/python -m pytest        # engines + measurement math
 .venv/bin/ruff check app tests
 ```
@@ -278,8 +280,8 @@ generators, and the frontend result view / auth flows.
 ## Deployment
 
 1. Provision PostgreSQL, Redis and an S3-compatible bucket.
-2. `npm run build`, then run `npm run start --workspace apps/api` and `npm run start:worker --workspace apps/api` as separate processes (scale workers horizontally).
-3. Serve `apps/web/dist` from any static host/CDN, proxying `/api` to the API.
+2. `npm run build`, then run `npm run start --workspace backend/api` and `npm run start:worker --workspace backend/api` as separate processes (scale workers horizontally).
+3. Serve `frontend/dist` from any static host/CDN, proxying `/api` to the API.
 4. Run the AI service (`uvicorn app.main:app`) on CPU or GPU hosts; scale it independently of the API.
 5. Set `COOKIE_SECURE=true` and terminate TLS in front of the API.
 6. Run `npm run db:deploy` on release.
