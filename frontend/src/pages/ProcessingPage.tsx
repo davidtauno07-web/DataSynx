@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Alert, Empty, Panel } from '../components/Panel';
+import { ClipStrip } from '../components/ClipStrip';
 import { CorrectionPanel } from '../components/CorrectionPanel';
 import { ResultView } from '../components/ResultView';
 import { SourcePreview } from '../components/SourcePreview';
 import { StatusPill } from '../components/StatusPill';
 import { api } from '../lib/api';
 import { useProcessingEvents } from '../lib/events';
-import type { ItemStatus, ProcessingItem, ProcessingJob, ProcessingResult } from '../lib/types';
+import type { EventClip, ItemStatus, ProcessingItem, ProcessingJob, ProcessingResult } from '../lib/types';
 
 interface CurrentResponse {
   job: ProcessingJob;
@@ -36,6 +37,10 @@ export function ProcessingPage() {
   const [commandInput, setCommandInput] = useState('');
   const [commandResult, setCommandResult] = useState<CommandResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A clip selection temporarily replaces the left source viewer; it never
+  // becomes a third screen and never replaces the original itself.
+  const [clips, setClips] = useState<EventClip[] | null>(null);
+  const [selectedClip, setSelectedClip] = useState<EventClip | null>(null);
 
   const jobs = useQuery({
     queryKey: ['jobs'],
@@ -70,6 +75,11 @@ export function ProcessingPage() {
     onSuccess: (res) => {
       setCommandResult(res);
       setCommandInput('');
+      const found = (res.data as { clips?: EventClip[] } | undefined)?.clips;
+      if (res.operation.kind === 'find_clips' && found && found.length > 0) {
+        setClips(found);
+        setSelectedClip(found[0] ?? null);
+      }
       invalidate();
     },
     onError: (err: Error) => setError(err.message),
@@ -191,7 +201,25 @@ export function ProcessingPage() {
           </Panel>
 
           <div className="split">
-            <Panel title="Original / Live Source">
+            <Panel
+              title={clips ? 'Event clips' : 'Original / Live Source'}
+              actions={
+                clips ? (
+                  <button
+                    onClick={() => {
+                      setClips(null);
+                      setSelectedClip(null);
+                    }}
+                  >
+                    Back to source
+                  </button>
+                ) : undefined
+              }
+            >
+              {clips ? (
+                <ClipStrip clips={clips} selected={selectedClip} onSelect={setSelectedClip} />
+              ) : (
+                <>
               {item && (
                 <div className="inline" style={{ marginBottom: 12 }}>
                   <span className="mono">{item.file.reference}</span>
@@ -201,9 +229,30 @@ export function ProcessingPage() {
                 </div>
               )}
               <SourcePreview file={item?.file ?? null} />
+                </>
+              )}
             </Panel>
 
-            <Panel title="Processed Data">
+            <Panel title="Processed / Structured Data">
+              {selectedClip && (
+                <dl className="kv" style={{ marginBottom: 12 }}>
+                  <dt>Clip</dt>
+                  <dd className="mono">{selectedClip.clipKey}</dd>
+                  <dt>Subject</dt>
+                  <dd>
+                    {selectedClip.subject} · {selectedClip.objectType}
+                  </dd>
+                  <dt>Events</dt>
+                  <dd>{selectedClip.kinds.join(', ') || '—'}</dd>
+                  <dt>Window</dt>
+                  <dd className="mono">
+                    {selectedClip.startTime.toFixed(1)}s → {selectedClip.endTime.toFixed(1)}s (event at{' '}
+                    {selectedClip.eventTime.toFixed(1)}s)
+                  </dd>
+                  <dt>Source</dt>
+                  <dd className="mono">{selectedClip.sourceRef}</dd>
+                </dl>
+              )}
               {!item ? (
                 <Empty>Waiting for the first item…</Empty>
               ) : item.status === 'FAILED' ? (

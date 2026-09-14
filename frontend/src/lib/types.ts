@@ -145,3 +145,22 @@ export interface ExportJob {
   createdAt: string;
   compilation?: { name: string; modality: Modality };
 }
+
+export interface EventClip {
+  id: string;
+  clipKey: string;
+  subject: string;
+  objectType: string;
+  sequence: number;
+  startTime: number;
+  endTime: number;
+  eventTime: number;
+  kinds: string[];
+  reason: string | null;
+  sourceRef: string;
+  fileId?: string;
+  resultId?: string;
+  status: 'READY' | 'UNAVAILABLE';
+  unavailableReason: string | null;
+  storageKey?: string | null;
+}

@@ -1,6 +1,7 @@
 # DataSynx
 
-Multimodal data processing, structuring, compilation and export platform.
+**Live Multimodal Data Decluttering AI Tool** — import, processing and export of
+structured data from documents, invoices, email, audio, images, CCTV and drone captures.
 
 > **AI perceives. Software calculates. DataSynx structures and compiles.**
 
@@ -157,7 +158,7 @@ processing”** in the UI. The two modes are never mixed.
 PostgreSQL via Prisma (`database/schema.prisma`). Core entities: `User`,
 `Session`, `PasswordReset`, `AuthProvider`, `Workspace`, `WorkspaceMember`, `Import`,
 `File`, `ProcessingJob`, `ProcessingItem`, `ProcessingResult`, `Compilation`,
-`CompilationRecord`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
+`CompilationRecord`, `EventClip`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
 `CameraCalibration`, `ReferenceCounter`.
 
 ```bash
@@ -220,6 +221,24 @@ POST /api/processing/jobs → job + items persisted → BullMQ enqueue
 
 Missing metadata is reported as missing. Nothing is invented.
 
+### Contextual event clips (CCTV)
+
+Events derived from tracking (`backend/ai/app/measure/events.py`) are grouped into clip
+windows by `backend/ai/app/measure/clips.py`: 3 s before the event, the event itself and
+3 s after; events within 6 s share a clip, a clip never exceeds 30 s, and a long-running
+activity therefore becomes a numbered sequence of short clips rather than one long one.
+The worker cuts each window from the original with `ffmpeg -c copy` and stores it as a
+derived object (`EventClip`); the original file is never modified. A window that cannot be
+cut is persisted as `UNAVAILABLE` with a reason instead of being dropped. Every clip keeps
+its lineage: source file, result, subject, event kinds and timestamps.
+
+### Counting
+
+Counts come from tracked identities, not per-frame detections: `count_summary`
+(`backend/ai/app/measure/counting.py`) reports unique objects, counts per class, per zone,
+per line crossing and per time bucket, with the deduplication method stated in the output.
+Drone stills are counted per image and labelled as not deduplicated across images.
+
 ## Measurement engine
 
 Deterministic only (`backend/ai/app/measure/`):
@@ -255,9 +274,10 @@ limiting on auth and upload routes; Helmet security headers; audit logging of im
 commands, exports and auth events; AES-256-GCM encryption of stored OAuth tokens;
 magic-byte + extension + size + structure validation on every upload; optional ClamAV
 (reports `SKIPPED`, never a false “clean”); redacted structured logs (pino). The
-command assistant only ever executes whitelisted structured operations — free text is
-never executed, originals are never modified or deleted, and every operation is scoped
-to the caller's workspace.
+command assistant only ever executes whitelisted structured operations (filter, column
+projection, row removal/restore, reprocess, summarise, geodesic distance, event clip
+search, deduplicated counting) — free text is never executed, originals are never
+modified or deleted, and every operation is scoped to the caller's workspace and audited.
 
 ## Testing
 

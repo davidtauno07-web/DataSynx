@@ -11,6 +11,8 @@ import { aiClient } from '../../services/ai/client.js';
 import { recordAudit, requestContext } from '../audit/service.js';
 import { cancelJob, createJob, retryFailedItems } from '../jobs/service.js';
 import { runCommand } from '../commands/service.js';
+import { findClips } from '../clips/service.js';
+import { presignGet } from '../../lib/storage.js';
 
 export const processingRouter = Router();
 processingRouter.use(requireAuth);
@@ -205,6 +207,44 @@ processingRouter.get(
       take: 50,
     });
     res.json({ commands: serialize(commands) });
+  }),
+);
+
+const clipQuerySchema = z.object({
+  resultId: z.string().uuid().optional(),
+  jobId: z.string().uuid().optional(),
+  subject: z.string().trim().min(1).max(200).optional(),
+  kind: z.string().trim().min(1).max(50).optional(),
+  limit: z.coerce.number().min(1).max(200).optional(),
+});
+
+/** Contextual event clips, chronological, with their lineage back to the source. */
+processingRouter.get(
+  '/clips',
+  apiLimiter,
+  asyncHandler(async (req, res) => {
+    const auth = authOf(req);
+    const query = clipQuerySchema.parse(req.query);
+    const clips = await findClips({ workspaceId: auth.workspaceId, ...query });
+    res.json(serialize({ clips }));
+  }),
+);
+
+/** Short-lived presigned URL for a derived clip. Originals are untouched. */
+processingRouter.get(
+  '/clips/:clipId/media',
+  apiLimiter,
+  asyncHandler(async (req, res) => {
+    const auth = authOf(req);
+    const { clipId } = z.object({ clipId: z.string().uuid() }).parse(req.params);
+    const clip = await prisma.eventClip.findFirst({
+      where: { id: clipId, workspaceId: auth.workspaceId },
+    });
+    if (!clip) throw notFound('Clip not found');
+    if (!clip.storageKey) {
+      throw notFound(clip.unavailableReason ?? 'This clip has no stored media');
+    }
+    res.json({ url: await presignGet(clip.storageKey, 300) });
   }),
 );
 

@@ -7,6 +7,7 @@ import { presignGet } from '../lib/storage.js';
 import { publishEvent } from '../events/bus.js';
 import { getProcessor } from '../processors/index.js';
 import { upsertCompilationRows } from '../modules/compilation/service.js';
+import { generateEventClips } from '../modules/clips/service.js';
 import { activeModelFor } from '../modules/training/service.js';
 import type { ProcessItemJob } from '../queue/queues.js';
 
@@ -167,6 +168,27 @@ export async function processItem(data: ProcessItemJob): Promise<void> {
       columns: output.compilation.columns,
       rows: output.compilation.rows,
     });
+
+    if (output.clips.length > 0) {
+      await setStage(item.id, data.workspaceId, data.jobId, ItemStatus.COMPILED, 'Cutting event clips', 98);
+      try {
+        await generateEventClips(
+          {
+            workspaceId: data.workspaceId,
+            resultId: result.id,
+            fileId: item.fileId,
+            sourceRef: item.file.reference,
+            fileUrl: await presignGet(item.file.storageKey, 3600),
+            engine: output.engine,
+            engineVersion: output.engineVersion,
+          },
+          output.clips,
+        );
+      } catch (err) {
+        // Clips are derived evidence: losing them must not discard the result.
+        logger.error({ err, itemId: item.id }, 'event clip generation failed');
+      }
+    }
 
     const durationMs = Date.now() - started;
     await prisma.processingItem.update({

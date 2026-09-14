@@ -6,6 +6,7 @@ import { aiClient } from '../../services/ai/client.js';
 import { getProcessingQueue } from '../../queue/queues.js';
 import { recordAudit } from '../audit/service.js';
 import { setRecordsRemoved } from '../compilation/service.js';
+import { findClips } from '../clips/service.js';
 import { parseCommand, type Operation } from './parser.js';
 
 export interface CommandContext {
@@ -52,6 +53,81 @@ async function executeOperation(op: Operation, ctx: CommandContext): Promise<Com
         status: CommandStatus.EXECUTED,
         message: `Distance: ${result.value} ${result.unit} (${result.method})`,
         data: result,
+      };
+    }
+
+    case 'find_clips': {
+      const clips = await findClips({
+        workspaceId: ctx.workspaceId,
+        jobId: ctx.jobId,
+        subject: op.subject,
+        kind: op.eventKind,
+      });
+      if (clips.length === 0) {
+        return {
+          operation: op,
+          status: CommandStatus.REJECTED,
+          message: 'No event clips match that request. Clips exist only for events found in processed footage.',
+        };
+      }
+      const unavailable = clips.filter((clip) => !clip.storageKey).length;
+      return {
+        operation: op,
+        status: CommandStatus.EXECUTED,
+        message:
+          `${clips.length} clip(s) in chronological order` +
+          (unavailable > 0 ? `; ${unavailable} have no stored footage` : ''),
+        data: {
+          clips: clips.map((clip) => ({
+            id: clip.id,
+            clipKey: clip.clipKey,
+            subject: clip.subject,
+            objectType: clip.objectType,
+            sequence: clip.sequence,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            eventTime: clip.eventTime,
+            kinds: clip.kinds,
+            reason: clip.reason,
+            sourceRef: clip.sourceRef,
+            status: clip.status,
+            unavailableReason: clip.unavailableReason,
+          })),
+        },
+      };
+    }
+
+    case 'count': {
+      const compilation = await resolveCompilation(ctx.workspaceId, ctx.modality);
+      if (!compilation) throw notFound('There is no compilation to count yet');
+      const records = await prisma.compilationRecord.findMany({
+        where: { compilationId: compilation.id, removed: false },
+        take: 20000,
+      });
+      // One compiled row is one tracked identity, so this is already
+      // deduplicated: the same object is never counted twice.
+      const rows = records.map((record) => record.data as Record<string, unknown>);
+      const byType = new Map<string, number>();
+      for (const row of rows) {
+        const type = String(row.Type ?? row.type ?? 'unknown');
+        byType.set(type, (byType.get(type) ?? 0) + 1);
+      }
+      const wanted = op.objectType?.toLowerCase();
+      const matched = wanted
+        ? [...byType].filter(([type]) => type.toLowerCase().includes(wanted))
+        : [...byType];
+      const total = matched.reduce((sum, [, count]) => sum + count, 0);
+      return {
+        operation: op,
+        status: CommandStatus.EXECUTED,
+        message: wanted
+          ? `${total} unique ${op.objectType}(s), deduplicated across frames by tracked identity`
+          : `${total} unique tracked objects, deduplicated across frames`,
+        data: {
+          total,
+          byType: Object.fromEntries(matched),
+          method: 'unique tracked identities in the current compilation',
+        },
       };
     }
 

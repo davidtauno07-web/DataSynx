@@ -13,6 +13,12 @@ export const operationSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('reprocess'), target: z.string() }),
   z.object({ kind: z.literal('summarise'), field: z.string().optional() }),
   z.object({
+    kind: z.literal('find_clips'),
+    subject: z.string().optional(),
+    eventKind: z.string().optional(),
+  }),
+  z.object({ kind: z.literal('count'), objectType: z.string().optional() }),
+  z.object({
     kind: z.literal('measure_distance'),
     from: z.tuple([z.number(), z.number()]),
     to: z.tuple([z.number(), z.number()]),
@@ -24,6 +30,21 @@ export type Operation = z.infer<typeof operationSchema>;
 
 const COORD = /(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/g;
 
+/** Natural phrasings mapped onto the event kinds the CCTV engine emits. */
+const EVENT_PHRASES: [RegExp, string][] = [
+  [/\bcross(?:ed|ings?|es)?\b/i, 'LINE_CROSSING'],
+  [/enter(?:ed|ing)?\s+(?:the\s+)?zone|zone\s+entry|restricted/i, 'ZONE_ENTRY'],
+  [/(?:left|exit(?:ed|ing)?)\s+(?:the\s+)?zone|zone\s+exit/i, 'ZONE_EXIT'],
+  [/stopp?(?:ed|ing)|stationary|standing|dwell/i, 'STOP'],
+  [/resumed|started moving/i, 'RESUME'],
+  [/turn(?:ed|ing)?|direction change|changed direction/i, 'DIRECTION_CHANGE'],
+];
+
+function eventKindOf(text: string): string | undefined {
+  for (const [pattern, kind] of EVENT_PHRASES) if (pattern.test(text)) return kind;
+  return undefined;
+}
+
 /**
  * Deterministic intent parser. An LLM is deliberately not in this path: the
  * command surface must be predictable and auditable. Unrecognised input is
@@ -32,6 +53,34 @@ const COORD = /(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/g;
 export function parseCommand(input: string): Operation {
   const text = input.trim();
   const lower = text.toLowerCase();
+
+  const clips =
+    /^(?:show|find|play|open|give me)\s+(?:me\s+)?(?:the\s+)?(?:event\s+)?clips?\b\s*(?:of|for|with|showing|where)?\s*(.*)$/i.exec(
+      text,
+    );
+  if (clips) {
+    const rest = (clips[1] ?? '').trim();
+    const eventKind = eventKindOf(rest);
+    const subject = rest.replace(/\b(that|who|which)\b.*$/i, '').trim();
+    return {
+      kind: 'find_clips',
+      ...(eventKind ? { eventKind } : {}),
+      ...(subject && !eventKind ? { subject } : {}),
+    };
+  }
+
+  const when =
+    /^when\s+did\s+(.+?)\s+((?:cross|stop|enter|leave|left|exit|turn|dwell|resume|stand)\w*\b.*)$/i.exec(text);
+  if (when?.[1] && when[2]) {
+    const eventKind = eventKindOf(when[2]);
+    if (eventKind) return { kind: 'find_clips', subject: when[1].trim(), eventKind };
+  }
+
+  const counted = /^(?:how many|count)\s+(.+?)\s*(?:\?|were there|are there|in total)?$/i.exec(text);
+  if (counted?.[1]) {
+    const objectType = counted[1].trim().replace(/s$/i, '');
+    return { kind: 'count', ...(objectType && objectType !== 'object' ? { objectType } : {}) };
+  }
 
   const remove = /^(remove|exclude|delete)\s+(?:row\s+)?(.+?)\s*(?:from (?:the )?results?)?$/i.exec(text);
   if (remove?.[2] && /^(remove|exclude|delete)/i.test(text)) {
@@ -99,6 +148,6 @@ export function parseCommand(input: string): Operation {
   return {
     kind: 'unsupported',
     reason:
-      'Command not recognised. Try: "show only vehicles moving north", "remove DSX-2026-000004#vehicle-17", "reprocess DSX-2026-000004", "calculate the distance between 59.437,24.753 and 59.441,24.760".',
+      'Command not recognised. Try: "show only vehicles moving north", "show clips of line crossings", "how many people", "remove DSX-2026-000004#vehicle-17", "reprocess DSX-2026-000004", "calculate the distance between 59.437,24.753 and 59.441,24.760".',
   };
 }

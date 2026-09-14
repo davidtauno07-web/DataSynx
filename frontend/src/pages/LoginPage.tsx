@@ -33,6 +33,7 @@ export function LoginPage() {
       <div className="auth-card">
         <Brand size={28} wordmark={false} />
         <h1>DataSynx</h1>
+        <p className="sub">Live Multimodal Data Decluttering AI Tool</p>
         <p className="sub">Sign in to your workspace.</p>
         {error && <Alert>{error}</Alert>}
         <form onSubmit={onSubmit} noValidate>

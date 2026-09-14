@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-from ..schemas import Compilation, CompilationRow, ProcessingOutput, ProcessRequest
+from ..schemas import ClipSpec, Compilation, CompilationRow, ProcessingOutput, ProcessRequest
 
 
 class Engine:
@@ -30,6 +30,7 @@ class Engine:
         measurements: list[Any] | None = None,
         warnings: list[str] | None = None,
         confidence: float | None = None,
+        clips: list[ClipSpec] | None = None,
         demo: bool = False,
     ) -> ProcessingOutput:
         return ProcessingOutput(
@@ -40,6 +41,7 @@ class Engine:
             measurements=measurements or [],
             warnings=warnings or [],
             confidence=confidence,
+            clips=clips or [],
             compilation=Compilation(columns=columns, rows=rows),
         )
 

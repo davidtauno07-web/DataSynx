@@ -55,6 +55,27 @@ describe('parseCommand', () => {
     expect(parseCommand('Total of Amount')).toEqual({ kind: 'summarise', field: 'Amount' });
   });
 
+  it('parses event clip searches', () => {
+    expect(parseCommand('Show clips of line crossings')).toEqual({
+      kind: 'find_clips',
+      eventKind: 'LINE_CROSSING',
+    });
+    expect(parseCommand('Show clips of Person #001')).toEqual({
+      kind: 'find_clips',
+      subject: 'Person #001',
+    });
+    expect(parseCommand('When did Vehicle #003 cross the line')).toEqual({
+      kind: 'find_clips',
+      subject: 'Vehicle #003',
+      eventKind: 'LINE_CROSSING',
+    });
+  });
+
+  it('parses deduplicated counting', () => {
+    expect(parseCommand('How many people')).toEqual({ kind: 'count', objectType: 'people' });
+    expect(parseCommand('Count vehicles')).toEqual({ kind: 'count', objectType: 'vehicle' });
+  });
+
   it('reports unsupported commands instead of inventing an operation', () => {
     const op = parseCommand('drop table users; rm -rf /');
     expect(op.kind).toBe('unsupported');

@@ -12,7 +12,10 @@ from typing import Any
 
 from ..download import download, suffix_for
 from ..errors import EngineUnavailable
+from ..measure.clips import plan_clips
+from ..measure.counting import CountedTrack, count_summary
 from ..measure.events import (
+    ZONE_ENTRY,
     TrackEvent,
     important_moments,
     occupancy_timeline,
@@ -30,7 +33,7 @@ from ..measure.kinematics import (
     to_world,
     track_distance,
 )
-from ..schemas import CompilationRow, Measurement, ProcessingOutput, ProcessRequest
+from ..schemas import ClipSpec, CompilationRow, Measurement, ProcessingOutput, ProcessRequest
 from .base import Engine
 from .vision import Track, detector_availability, get_detector
 
@@ -111,7 +114,7 @@ def pixel_path_length(track: Track) -> float:
 
 class CCTVEngine(Engine):
     name = "cctv"
-    version = "1.0.0"
+    version = "1.1.0"
 
     def availability(self) -> tuple[bool, str]:
         return detector_availability()
@@ -159,6 +162,7 @@ class CCTVEngine(Engine):
         trajectories: list[dict[str, Any]] = []
         events: list[TrackEvent] = []
         intervals: list[tuple[str, float, float]] = []
+        counted: list[CountedTrack] = []
 
         for index, track in enumerate(tracks, start=1):
             name = object_name(track, index)
@@ -229,6 +233,20 @@ class CCTVEngine(Engine):
                 for d in track.detections
             ]
             trajectories.append({"object": name, "type": track.label, "points": trajectory})
+            counted.append(
+                CountedTrack(
+                    subject=name,
+                    label=track.label,
+                    start=track.first.timestamp,
+                    end=track.last.timestamp,
+                    zones=[
+                        str(event.evidence.get("zone"))
+                        for event in track_timeline
+                        if event.kind == ZONE_ENTRY and event.evidence.get("zone")
+                    ],
+                    crossings=line_hits,
+                )
+            )
 
             rows.append(
                 CompilationRow(
@@ -253,6 +271,13 @@ class CCTVEngine(Engine):
             )
 
         timeline = occupancy_timeline(intervals)
+        footage_seconds = (
+            meta["frames"] / meta["fps"]
+            if meta["fps"]
+            else (max((end for _, _, end in intervals), default=None))
+        )
+        clips = [ClipSpec(**plan.as_dict()) for plan in plan_clips(events, footage_seconds)]
+        counts_detail = count_summary(counted, tracking_quality=meta["model"])
         summary: dict[str, Any] = {
             "Source": request.originalName,
             "Frames analysed": meta["frames"],
@@ -268,9 +293,16 @@ class CCTVEngine(Engine):
             "Important moments": [event.as_dict() for event in important_moments(events)],
             "Occupancy timeline": timeline,
             "Peak occupancy": peak_occupancy(intervals),
+            "Counts": counts_detail,
+            "Event clips": [clip.model_dump() for clip in clips],
         }
         return self.output(
-            summary=summary, columns=COLUMNS, rows=rows, measurements=measurements, warnings=warnings
+            summary=summary,
+            columns=COLUMNS,
+            rows=rows,
+            measurements=measurements,
+            warnings=warnings,
+            clips=clips,
         )
 
     @staticmethod

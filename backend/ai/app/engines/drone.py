@@ -253,6 +253,10 @@ class DroneEngine(Engine):
             "Ground sample distance (m/px)": round(gsd, 5) if gsd else None,
             "Detected objects": len(detections),
             "Counts by class": counts,
+            "Count method": (
+                "one still frame, one detection per object; "
+                "objects appearing in other images of the same site are not deduplicated"
+            ),
             "Metadata": metadata,
         }
         return self.output(

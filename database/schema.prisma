@@ -101,6 +101,7 @@ model Workspace {
   corrections  Correction[]
   datasets     TrainingDataset[]
   models       ModelVersion[]
+  clips        EventClip[]
 }
 
 model WorkspaceMember {
@@ -198,6 +199,7 @@ model FileObject {
   members     FileObject[]     @relation("ArchiveMember")
   items       ProcessingItem[]
   datasetItems DatasetItem[]
+  clips       EventClip[]
 
   @@index([archiveId])
   @@index([workspaceId, checksumSha256])
@@ -308,8 +310,51 @@ model ProcessingResult {
   supersededBy ProcessingResult? @relation("ResultVersion")
   records    CompilationRecord[]
   corrections Correction[]
+  clips      EventClip[]
 
   @@index([itemId, version])
+}
+
+enum ClipStatus {
+  READY
+  UNAVAILABLE
+}
+
+// A contextual clip cut from the original media around detected events. The
+// original file is never modified: a clip is a derived artefact that keeps the
+// lineage back to its source file, result, object and events.
+model EventClip {
+  id           String     @id @default(uuid())
+  workspaceId  String
+  resultId     String
+  fileId       String
+  sourceRef    String
+  clipKey      String
+  subject      String
+  objectType   String
+  sequence     Int        @default(1)
+  startTime    Float
+  endTime      Float
+  eventTime    Float
+  kinds        Json       @default("[]")
+  events       Json       @default("[]")
+  reason       String?
+  status       ClipStatus @default(READY)
+  unavailableReason String?
+  storageKey   String?
+  mimeType     String?
+  sizeBytes    BigInt?
+  engine       String
+  engineVersion String
+  createdAt    DateTime   @default(now())
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  result    ProcessingResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  file      FileObject       @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([resultId, clipKey])
+  @@index([workspaceId, createdAt])
+  @@index([fileId, startTime])
 }
 
 // ---------------------------------------------------------------------------

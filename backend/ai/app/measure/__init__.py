@@ -1,3 +1,3 @@
-from . import geo, kinematics
+from . import clips, counting, events, geo, kinematics
 
-__all__ = ["geo", "kinematics"]
+__all__ = ["clips", "counting", "events", "geo", "kinematics"]

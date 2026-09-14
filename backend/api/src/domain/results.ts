@@ -28,6 +28,24 @@ export const compilationRowSchema = z.object({
   geometry: z.unknown().nullable().default(null),
 });
 
+/**
+ * A contextual clip window an engine derived from detected events. The API
+ * cuts the media; the engine only says which window carries which evidence.
+ */
+export const clipSpecSchema = z.object({
+  clipKey: z.string(),
+  subject: z.string(),
+  objectType: z.string(),
+  sequence: z.number().int().min(1),
+  startTime: z.number().min(0),
+  endTime: z.number().min(0),
+  eventTime: z.number().min(0),
+  durationSeconds: z.number().min(0),
+  kinds: z.array(z.string()).default([]),
+  events: z.array(z.record(z.unknown())).default([]),
+  reason: z.string().default(''),
+});
+
 export const processingOutputSchema = z.object({
   engine: z.string(),
   engineVersion: z.string(),
@@ -37,6 +55,7 @@ export const processingOutputSchema = z.object({
   measurements: z.array(measurementSchema).default([]),
   warnings: z.array(z.string()).default([]),
   confidence: z.number().min(0).max(1).nullable().default(null),
+  clips: z.array(clipSpecSchema).default([]),
   compilation: z.object({
     columns: z.array(z.string()),
     rows: z.array(compilationRowSchema),
@@ -45,3 +64,4 @@ export const processingOutputSchema = z.object({
 
 export type ProcessingOutput = z.infer<typeof processingOutputSchema>;
 export type CompilationRow = z.infer<typeof compilationRowSchema>;
+export type ClipSpec = z.infer<typeof clipSpecSchema>;

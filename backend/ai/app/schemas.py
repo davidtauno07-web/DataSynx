@@ -33,6 +33,22 @@ class Compilation(BaseModel):
     rows: list[CompilationRow]
 
 
+class ClipSpec(BaseModel):
+    """A contextual clip window the API should cut from the original media."""
+
+    clipKey: str
+    subject: str
+    objectType: str
+    sequence: int
+    startTime: float
+    endTime: float
+    eventTime: float
+    durationSeconds: float
+    kinds: list[str] = Field(default_factory=list)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    reason: str = ""
+
+
 class ProcessingOutput(BaseModel):
     engine: str
     engineVersion: str
@@ -41,6 +57,7 @@ class ProcessingOutput(BaseModel):
     measurements: list[Measurement] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     confidence: float | None = None
+    clips: list[ClipSpec] = Field(default_factory=list)
     compilation: Compilation
 
 
