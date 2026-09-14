@@ -61,8 +61,11 @@ class OpenAICompatibleProvider:
             return None
 
 
+SUPPORTED_PROVIDERS = {"openai", "local"}
+
+
 def get_provider() -> LLMProvider | None:
-    """Selects the configured provider; returns None when none is configured."""
+    """Selects the environment-configured provider; None when none is configured."""
     provider = os.environ.get("AI_LLM_PROVIDER", "").lower()
     model = os.environ.get("AI_LLM_MODEL", "gpt-4o-mini")
 
@@ -78,3 +81,48 @@ def get_provider() -> LLMProvider | None:
             os.environ["AI_LLM_BASE_URL"], os.environ.get("AI_LLM_API_KEY", "local"), model, "local"
         )
     return None
+
+
+def select_provider(options: dict[str, Any] | None = None) -> tuple[LLMProvider | None, list[str]]:
+    """Resolves the model the workspace activated in the model registry.
+
+    `options["model"]` is the active `ModelVersion` (name, version, provider,
+    artifactUri, parameters). It replaces the environment default so activating
+    a model actually changes what runs. An unusable selection falls back to the
+    environment provider and says so instead of silently pretending.
+    """
+    selection = (options or {}).get("model")
+    if not isinstance(selection, dict):
+        return get_provider(), []
+
+    label = f"{selection.get('name')}:{selection.get('version')}"
+    provider = str(selection.get("provider", "")).lower()
+    model_name = str(selection.get("baseModel") or selection.get("name") or "")
+
+    if provider not in SUPPORTED_PROVIDERS:
+        return get_provider(), [
+            f"Active model {label} uses unsupported provider '{provider}'; using the configured default"
+        ]
+
+    if provider == "openai":
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            return get_provider(), [
+                f"Active model {label} needs OPENAI_API_KEY; using the configured default"
+            ]
+        base_url = str(
+            selection.get("artifactUri") or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        )
+        return OpenAICompatibleProvider(base_url, api_key, model_name, f"openai/{label}"), []
+
+    base_url = selection.get("artifactUri") or os.environ.get("AI_LLM_BASE_URL")
+    if not base_url:
+        return get_provider(), [
+            f"Active model {label} has no artifact endpoint; using the configured default"
+        ]
+    return (
+        OpenAICompatibleProvider(
+            str(base_url), os.environ.get("AI_LLM_API_KEY", "local"), model_name, f"local/{label}"
+        ),
+        [],
+    )

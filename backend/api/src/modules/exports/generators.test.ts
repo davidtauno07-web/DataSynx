@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
 import { generateExport } from './generators.js';
+import { applyProjection } from './dataset.js';
 import type { Dataset } from './dataset.js';
 
 function dataset(overrides: Partial<Dataset> = {}): Dataset {
@@ -115,5 +116,48 @@ describe('export generators', () => {
 
   it('refuses GeoJSON when the compilation has no geometry rather than inventing one', async () => {
     await expect(generateExport('GEOJSON', dataset())).rejects.toThrow(/no spatial geometry/i);
+  });
+});
+
+describe('column projection', () => {
+  const projected = (projection?: string[]): Dataset => {
+    const base = dataset({
+      geometries: [
+        {
+          properties: {
+            Source: 'DSX-2026-000003',
+            'Invoice Number': 'INV-3',
+            Supplier: 'Northwind, Ltd',
+            Total: 12,
+          },
+          geometry: { type: 'Point', coordinates: [24.7536, 59.437] },
+        },
+      ],
+    });
+    return { ...base, ...applyProjection(base, projection) };
+  };
+
+  it('drops deselected fields from JSON records, keeping Source', async () => {
+    const result = await generateExport('JSON', projected(['Invoice Number']));
+    const parsed = JSON.parse(result.buffer.toString('utf8')) as {
+      records: Record<string, unknown>[];
+    };
+    expect(Object.keys(parsed.records[0] ?? {})).toEqual(['Source', 'Invoice Number']);
+  });
+
+  it('drops deselected fields from GeoJSON feature properties', async () => {
+    const result = await generateExport('GEOJSON', projected(['Invoice Number']));
+    const parsed = JSON.parse(result.buffer.toString('utf8')) as {
+      features: { properties: Record<string, unknown> }[];
+    };
+    expect(Object.keys(parsed.features[0]?.properties ?? {})).toEqual(['Source', 'Invoice Number']);
+  });
+
+  it('keeps every field when nothing is projected', async () => {
+    const result = await generateExport('JSON', projected());
+    const parsed = JSON.parse(result.buffer.toString('utf8')) as {
+      records: Record<string, unknown>[];
+    };
+    expect(Object.keys(parsed.records[0] ?? {})).toContain('Supplier');
   });
 });

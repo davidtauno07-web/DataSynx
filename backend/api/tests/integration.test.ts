@@ -382,6 +382,37 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
   });
 
   describe('training', () => {
+    /** A processed invoice plus the compilation its rows land in. */
+    async function trainingFixture(tag: string) {
+      const file = await prisma.fileObject.findFirstOrThrow({ where: { id: fileIds[0] } });
+      const job = await prisma.processingJob.create({
+        data: {
+          workspaceId,
+          userId,
+          name: `Training fixture ${tag}`,
+          totalItems: 1,
+          reference: `DSXJOB-${randomUUID().slice(0, 8)}`,
+        },
+      });
+      const item = await prisma.processingItem.create({
+        data: { jobId: job.id, fileId: file.id, position: 0, modality: Modality.INVOICE },
+      });
+      const result = await prisma.processingResult.create({
+        data: {
+          itemId: item.id,
+          engine: 'invoice.v1',
+          engineVersion: 'test',
+          data: { Supplier: 'Nortwind', Paid: false },
+        },
+      });
+      const compilation = await prisma.compilation.upsert({
+        where: { workspaceId_modality: { workspaceId, modality: Modality.INVOICE } },
+        update: {},
+        create: { workspaceId, modality: Modality.INVOICE, name: 'Invoices' },
+      });
+      return { result, compilation };
+    }
+
     it('turns accepted corrections into a dataset version and activates one model per modality', async () => {
       const file = await prisma.fileObject.findFirstOrThrow({ where: { id: fileIds[0] } });
       const job = await prisma.processingJob.create({
@@ -471,6 +502,111 @@ describe.skipIf(!available)('DataSynx API (integration)', () => {
         .set('Cookie', cookies)
         .query({ modality: Modality.INVOICE });
       const active = models.body.models.filter((m: { stage: string }) => m.stage === 'ACTIVE');
+      expect(active).toHaveLength(1);
+    });
+
+    it('reads the original value from the compiled row, not from the result summary', async () => {
+      const { result, compilation } = await trainingFixture('rowlevel');
+      const record = await prisma.compilationRecord.create({
+        data: {
+          compilationId: compilation.id,
+          resultId: result.id,
+          rowKey: 'line-2',
+          sourceRef: 'DSX-TEST-ROW',
+          data: { Supplier: 'Acme', Quantity: 3 },
+        },
+      });
+
+      const corrected = await request(app)
+        .post('/api/training/corrections')
+        .set('Cookie', cookies)
+        .send({
+          resultId: result.id,
+          rowKey: record.rowKey,
+          field: 'Quantity',
+          correctedValue: 4,
+        });
+      expect(corrected.status).toBe(201);
+      expect(corrected.body.correction.originalValue).toBe(3);
+      expect(corrected.body.correction.correctedValue).toBe(4);
+
+      const booleanCorrection = await request(app)
+        .post('/api/training/corrections')
+        .set('Cookie', cookies)
+        .send({ resultId: result.id, field: 'Paid', correctedValue: true });
+      expect(booleanCorrection.status).toBe(201);
+      expect(booleanCorrection.body.correction.correctedValue).toBe(true);
+
+      const unknownRow = await request(app)
+        .post('/api/training/corrections')
+        .set('Cookie', cookies)
+        .send({ resultId: result.id, rowKey: 'no-such-row', field: 'Quantity', correctedValue: 1 });
+      expect(unknownRow.status).toBe(404);
+
+      const unknownField = await request(app)
+        .post('/api/training/corrections')
+        .set('Cookie', cookies)
+        .send({ resultId: result.id, rowKey: record.rowKey, field: 'Nope', correctedValue: 1 });
+      expect(unknownField.status).toBe(400);
+    });
+
+    it('lets members propose corrections but not swap the active model', async () => {
+      const email = emailOf('member');
+      const registered = await request(app)
+        .post('/api/auth/register')
+        .send({ name: 'Member Tester', email, password });
+      const memberWorkspace = registered.body.workspaceId as string;
+      workspaceIds.push(memberWorkspace);
+      await prisma.workspaceMember.updateMany({
+        where: { workspaceId: memberWorkspace },
+        data: { role: 'MEMBER' },
+      });
+      const memberCookies = setCookies(
+        await request(app).post('/api/auth/login').send({ email, password }),
+      );
+
+      const denied = await request(app)
+        .post('/api/training/models')
+        .set('Cookie', memberCookies)
+        .send({ modality: Modality.INVOICE, name: 'sneaky', version: '9', provider: 'local' });
+      expect(denied.status).toBe(403);
+
+      const readable = await request(app)
+        .get('/api/training/models')
+        .set('Cookie', memberCookies)
+        .query({ modality: Modality.INVOICE });
+      expect(readable.status).toBe(200);
+    });
+
+    it('keeps a single active model when two activations race', async () => {
+      const models = await Promise.all(
+        ['a', 'b'].map((tag) =>
+          prisma.modelVersion.create({
+            data: {
+              workspaceId,
+              modality: Modality.DOCUMENT,
+              name: `racer-${tag}`,
+              version: randomUUID().slice(0, 6),
+              provider: 'local',
+              stage: 'CANDIDATE',
+            },
+          }),
+        ),
+      );
+
+      const responses = await Promise.all(
+        models.map((model) =>
+          request(app)
+            .post(`/api/training/models/${model.id}/activate`)
+            .set('Cookie', cookies)
+            .send({}),
+        ),
+      );
+      expect(responses.some((r) => r.status === 200)).toBe(true);
+
+      const active = await prisma.modelVersion.findMany({
+        where: { workspaceId, modality: Modality.DOCUMENT, stage: 'ACTIVE' },
+      });
       expect(active).toHaveLength(1);
     });
   });

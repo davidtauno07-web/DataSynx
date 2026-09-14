@@ -18,10 +18,15 @@ export interface ArchiveLimits {
   maxCompressionRatio: number;
 }
 
+/**
+ * Sized so a hostile archive cannot exhaust the API process: only one member
+ * is held in memory at a time (see `expandArchive`), so the ceiling that
+ * matters is `maxEntryBytes`, and the total bounds a single import.
+ */
 export const DEFAULT_ARCHIVE_LIMITS: ArchiveLimits = {
   maxEntries: 2_000,
-  maxTotalBytes: 4 * 1024 * 1024 * 1024,
-  maxEntryBytes: 2 * 1024 * 1024 * 1024,
+  maxTotalBytes: 2 * 1024 * 1024 * 1024,
+  maxEntryBytes: 512 * 1024 * 1024,
   maxCompressionRatio: 300,
 };
 
@@ -39,10 +44,15 @@ export interface ArchiveSkip {
 }
 
 export interface ArchiveExpansion {
+  /** Populated only when no `onMember` sink is given — see `expandArchive`. */
   members: ArchiveMember[];
+  memberCount: number;
   skipped: ArchiveSkip[];
   totalBytes: number;
 }
+
+/** Consumes one extracted member; its buffer is released straight afterwards. */
+export type ArchiveMemberSink = (member: ArchiveMember) => Promise<void>;
 
 const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'gz', 'bz2', 'xz', 'tar', 'tgz']);
 const UNIX_SYMLINK_MODE = 0o120000;
@@ -146,15 +156,57 @@ function nextEntry(zip: ZipFile): Promise<Entry | null> {
   });
 }
 
+/**
+ * Reads the central directory only: entry count and declared sizes are checked
+ * before a single byte is decompressed, so an obvious bomb costs nothing.
+ */
+export async function inspectArchive(
+  buffer: Buffer,
+  limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS,
+): Promise<void> {
+  const zip = await openZip(buffer);
+  let entries = 0;
+  let declaredTotal = 0;
+  try {
+    for (;;) {
+      const entry = await nextEntry(zip);
+      if (!entry) break;
+      if (entryName(entry).endsWith('/')) continue;
+      entries += 1;
+      if (entries > limits.maxEntries) {
+        throw unprocessable(`The archive contains more than ${limits.maxEntries} files`);
+      }
+      if (entry.uncompressedSize > limits.maxEntryBytes) {
+        throw unprocessable(`"${entryName(entry)}" is larger than the allowed extraction size`);
+      }
+      declaredTotal += entry.uncompressedSize;
+      if (declaredTotal > limits.maxTotalBytes) {
+        throw unprocessable('The archive expands beyond the allowed total size');
+      }
+    }
+  } finally {
+    zip.close();
+  }
+}
+
+/**
+ * Expands a ZIP one member at a time. With an `onMember` sink each member is
+ * handed over and then dropped, so peak memory stays at a single entry instead
+ * of the whole expanded archive.
+ */
 export async function expandArchive(
   buffer: Buffer,
   limits: ArchiveLimits = DEFAULT_ARCHIVE_LIMITS,
+  onMember?: ArchiveMemberSink,
 ): Promise<ArchiveExpansion> {
+  await inspectArchive(buffer, limits);
+
   const zip = await openZip(buffer);
   const members: ArchiveMember[] = [];
   const skipped: ArchiveSkip[] = [];
   let totalBytes = 0;
   let seen = 0;
+  let memberCount = 0;
 
   try {
     for (;;) {
@@ -210,20 +262,23 @@ export async function expandArchive(
         throw unprocessable('The archive expands beyond the allowed total size');
       }
 
-      members.push({
+      const member: ArchiveMember = {
         archivePath,
         fileName: posix.basename(archivePath),
         sizeBytes: content.length,
         buffer: content,
-      });
+      };
+      memberCount += 1;
+      if (onMember) await onMember(member);
+      else members.push(member);
     }
   } finally {
     zip.close();
   }
 
-  if (members.length === 0 && skipped.length === 0) {
+  if (memberCount === 0 && skipped.length === 0) {
     throw unprocessable('The archive contains no files');
   }
 
-  return { members, skipped, totalBytes };
+  return { members, memberCount, skipped, totalBytes };
 }

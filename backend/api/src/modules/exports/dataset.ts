@@ -25,6 +25,27 @@ function projectColumns(columns: string[], projection?: string[]): string[] {
   return kept.length > 1 ? kept : columns;
 }
 
+type Projectable = Pick<Dataset, 'columns' | 'rows' | 'geometries'>;
+
+/**
+ * Applies the projection to the values too, not only to the header list: JSON
+ * and GeoJSON serialize row objects and geometry properties directly, so a
+ * header-only projection would still ship the deselected fields.
+ */
+export function applyProjection(data: Projectable, projection?: string[]): Projectable {
+  const kept = projectColumns(data.columns, projection);
+  if (kept.length === data.columns.length) return data;
+
+  const projectRow = (row: Record<string, unknown>): Record<string, unknown> =>
+    Object.fromEntries(kept.filter((c) => c in row).map((c) => [c, row[c]]));
+
+  return {
+    columns: kept,
+    rows: data.rows.map(projectRow),
+    geometries: data.geometries.map((g) => ({ ...g, properties: projectRow(g.properties) })),
+  };
+}
+
 /**
  * Exports always read the persisted compilation — the AI pipeline is never
  * re-run for an export.
@@ -66,9 +87,7 @@ export async function loadDataset(
 
   return {
     compilation,
-    columns: projectColumns(columns, projection),
-    rows,
-    geometries,
+    ...applyProjection({ columns, rows, geometries }, projection),
     generatedAt: new Date(),
   };
 }

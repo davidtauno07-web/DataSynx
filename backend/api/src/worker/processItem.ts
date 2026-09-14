@@ -123,6 +123,7 @@ export async function processItem(data: ProcessItemJob): Promise<void> {
                 name: activeModel.name,
                 version: activeModel.version,
                 provider: activeModel.provider,
+                baseModel: activeModel.baseModel,
                 artifactUri: activeModel.artifactUri,
                 parameters: activeModel.parameters,
               },

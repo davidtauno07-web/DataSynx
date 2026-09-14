@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CorrectionStatus, Modality } from '@prisma/client';
 import { serialize } from '../../lib/prisma.js';
 import { asyncHandler } from '../../middleware/asyncHandler.js';
-import { authOf, requireAuth } from '../../middleware/auth.js';
+import { authOf, requireAuth, requireRole } from '../../middleware/auth.js';
 import { apiLimiter } from '../../middleware/rateLimit.js';
 import { recordAudit, requestContext } from '../audit/service.js';
 import {
@@ -22,6 +22,14 @@ import {
 export const trainingRouter = Router();
 trainingRouter.use(requireAuth, apiLimiter);
 
+/** Anyone but a read-only viewer may propose a correction. */
+const canContribute = requireRole('OWNER', 'ADMIN', 'MEMBER');
+/**
+ * Reviewing corrections, freezing datasets and swapping the model that later
+ * processing jobs run on are workspace-wide decisions, not member actions.
+ */
+const canCurate = requireRole('OWNER', 'ADMIN');
+
 const correctionSchema = z.object({
   resultId: z.string().uuid(),
   field: z.string().min(1).max(200),
@@ -32,6 +40,7 @@ const correctionSchema = z.object({
 
 trainingRouter.post(
   '/corrections',
+  canContribute,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const body = correctionSchema.parse(req.body);
@@ -75,6 +84,7 @@ trainingRouter.get(
 
 trainingRouter.patch(
   '/corrections/:correctionId',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const { correctionId } = z.object({ correctionId: z.string().uuid() }).parse(req.params);
@@ -86,6 +96,7 @@ trainingRouter.patch(
 
 trainingRouter.post(
   '/datasets',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const body = z
@@ -110,6 +121,7 @@ trainingRouter.get(
 
 trainingRouter.post(
   '/datasets/:datasetId/versions',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const { datasetId } = z.object({ datasetId: z.string().uuid() }).parse(req.params);
@@ -138,6 +150,7 @@ trainingRouter.get(
 
 trainingRouter.post(
   '/models',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const body = z
@@ -164,6 +177,7 @@ trainingRouter.post(
 
 trainingRouter.post(
   '/models/:modelVersionId/activate',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const { modelVersionId } = z.object({ modelVersionId: z.string().uuid() }).parse(req.params);
@@ -182,6 +196,7 @@ trainingRouter.post(
 
 trainingRouter.post(
   '/models/:modelVersionId/evaluations',
+  canCurate,
   asyncHandler(async (req, res) => {
     const auth = authOf(req);
     const { modelVersionId } = z.object({ modelVersionId: z.string().uuid() }).parse(req.params);

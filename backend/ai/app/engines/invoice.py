@@ -15,7 +15,7 @@ from dateutil import parser as date_parser
 
 from ..download import download, suffix_for
 from ..errors import EngineFailed
-from ..providers import get_provider
+from ..providers import get_provider, select_provider
 from ..schemas import CompilationRow, ProcessingOutput, ProcessRequest
 from .base import Engine
 from .document import extract_text
@@ -199,7 +199,8 @@ class InvoiceEngine(Engine):
 
         fields = rule_based_extract(text)
 
-        provider = get_provider()
+        provider, model_warnings = select_provider(request.options)
+        warnings += model_warnings
         if provider is not None:
             refined = provider.extract("Extract the invoice fields.", text, LLM_SCHEMA)
             if refined:
@@ -232,6 +233,7 @@ class InvoiceEngine(Engine):
             "Payment (IBAN)": fields.get("iban"),
             "Line items": fields.get("lineItems"),
             "Extraction": source,
+            "Model": provider.name if provider else None,
         }
 
         row = CompilationRow(

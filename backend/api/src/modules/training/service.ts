@@ -24,7 +24,7 @@ export interface CorrectionInput {
   userId: string;
   resultId: string;
   field: string;
-  correctedValue: Prisma.InputJsonValue;
+  correctedValue: Prisma.InputJsonValue | null;
   rowKey?: string;
   note?: string;
 }
@@ -36,8 +36,20 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcti
   });
   if (!result) throw notFound('Processing result not found');
 
-  const data = result.data as Record<string, unknown> | null;
-  const original = data && input.field in data ? (data[input.field] as Prisma.InputJsonValue) : undefined;
+  // A row correction belongs to a compiled row, not to the result summary.
+  const source = input.rowKey
+    ? await prisma.compilationRecord.findFirst({
+        where: { resultId: result.id, rowKey: input.rowKey, removed: false },
+      })
+    : null;
+  if (input.rowKey && !source) throw notFound('Compiled row not found for this result');
+
+  const data = ((source ? source.data : result.data) ?? null) as Record<string, unknown> | null;
+  if (!data || !(input.field in data)) {
+    throw badRequest(`"${input.field}" is not a field of this ${input.rowKey ? 'row' : 'result'}`);
+  }
+  // A JSON null is a value here ("the field was empty"), not an absent column.
+  const original = (data[input.field] ?? Prisma.JsonNull) as Prisma.InputJsonValue;
 
   return prisma.correction.create({
     data: {
@@ -48,7 +60,7 @@ export async function recordCorrection(input: CorrectionInput): Promise<Correcti
       modality: result.item.modality,
       field: input.field,
       originalValue: original,
-      correctedValue: input.correctedValue,
+      correctedValue: input.correctedValue ?? Prisma.JsonNull,
       note: input.note ?? null,
     },
   });
@@ -241,8 +253,12 @@ export async function activateModel(params: {
   });
   if (!model) throw notFound('Model version not found');
 
-  const [, activated] = await prisma.$transaction([
-    prisma.modelVersion.updateMany({
+  // Serialised per workspace+modality: concurrent activations would otherwise
+  // each retire the same predecessor and both stay ACTIVE. The partial unique
+  // index on (workspaceId, modality) for ACTIVE rows is the last line of defence.
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${params.workspaceId}:${model.modality}`}))`;
+    await tx.modelVersion.updateMany({
       where: {
         workspaceId: params.workspaceId,
         modality: model.modality,
@@ -250,13 +266,12 @@ export async function activateModel(params: {
         id: { not: model.id },
       },
       data: { stage: ModelStage.RETIRED },
-    }),
-    prisma.modelVersion.update({
+    });
+    return tx.modelVersion.update({
       where: { id: model.id },
       data: { stage: ModelStage.ACTIVE, activatedAt: new Date() },
-    }),
-  ]);
-  return activated;
+    });
+  });
 }
 
 export function activeModelFor(workspaceId: string, modality: Modality) {

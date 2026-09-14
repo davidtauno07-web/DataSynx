@@ -267,7 +267,7 @@ class CCTVEngine(Engine):
             "Events": [event.as_dict() for event in sorted(events, key=lambda e: e.time)],
             "Important moments": [event.as_dict() for event in important_moments(events)],
             "Occupancy timeline": timeline,
-            "Peak occupancy": peak_occupancy(timeline),
+            "Peak occupancy": peak_occupancy(intervals),
         }
         return self.output(
             summary=summary, columns=COLUMNS, rows=rows, measurements=measurements, warnings=warnings

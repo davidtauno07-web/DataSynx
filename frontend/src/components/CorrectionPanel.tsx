@@ -4,6 +4,32 @@ import { api } from '../lib/api';
 import { formatValue, humanLabel } from '../lib/format';
 import type { Correction, ProcessingResult } from '../lib/types';
 
+type ValueType = 'text' | 'number' | 'boolean' | 'null';
+
+const typeOf = (value: unknown): ValueType => {
+  if (typeof value === 'number') return 'number';
+  if (typeof value === 'boolean') return 'boolean';
+  if (value === null || value === undefined) return 'null';
+  return 'text';
+};
+
+/** Keeps the corrected value in the field's own type; training data stays typed. */
+function coerce(raw: string, type: ValueType): { value: unknown } | { error: string } {
+  if (type === 'null') return { value: null };
+  if (type === 'boolean') {
+    const normalised = raw.trim().toLowerCase();
+    if (['true', 'yes', '1'].includes(normalised)) return { value: true };
+    if (['false', 'no', '0'].includes(normalised)) return { value: false };
+    return { error: 'Enter true or false' };
+  }
+  if (type === 'number') {
+    const parsed = Number(raw.trim().replace(',', '.'));
+    if (raw.trim() === '' || Number.isNaN(parsed)) return { error: 'Enter a number' };
+    return { value: parsed };
+  }
+  return { value: raw };
+}
+
 /**
  * Human corrections are supervision records: they are stored beside the result
  * and never overwrite what the pipeline produced.
@@ -19,6 +45,8 @@ export function CorrectionPanel({ result }: { result: ProcessingResult }) {
   const [value, setValue] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [override, setOverride] = useState<ValueType | ''>('');
+  const valueType: ValueType = override || typeOf(data[field]);
 
   const corrections = useQuery({
     queryKey: ['corrections', result.id],
@@ -29,13 +57,16 @@ export function CorrectionPanel({ result }: { result: ProcessingResult }) {
   });
 
   const submit = useMutation({
-    mutationFn: () =>
-      api.post('/training/corrections', {
+    mutationFn: () => {
+      const coerced = coerce(value, valueType);
+      if ('error' in coerced) return Promise.reject(new Error(coerced.error));
+      return api.post('/training/corrections', {
         resultId: result.id,
         field,
-        correctedValue: value,
+        correctedValue: coerced.value,
         ...(note ? { note } : {}),
-      }),
+      });
+    },
     onSuccess: () => {
       setValue('');
       setNote('');
@@ -55,17 +86,36 @@ export function CorrectionPanel({ result }: { result: ProcessingResult }) {
       </p>
       {error && <div className="alert">{error}</div>}
       <div className="inline" style={{ flexWrap: 'wrap' }}>
-        <select aria-label="Field" value={field} onChange={(e) => setField(e.target.value)}>
+        <select
+          aria-label="Field"
+          value={field}
+          onChange={(e) => {
+            setField(e.target.value);
+            setOverride('');
+          }}
+        >
           {fields.map((name) => (
             <option key={name} value={name}>
               {humanLabel(name)}
             </option>
           ))}
         </select>
+        <select
+          aria-label="Value type"
+          value={valueType}
+          onChange={(e) => setOverride(e.target.value as ValueType)}
+        >
+          <option value="text">Text</option>
+          <option value="number">Number</option>
+          <option value="boolean">True / false</option>
+          <option value="null">Not present</option>
+        </select>
         <input
           aria-label="Corrected value"
-          placeholder="Corrected value"
+          placeholder={valueType === 'null' ? 'Recorded as not present' : 'Corrected value'}
           value={value}
+          disabled={valueType === 'null'}
+          inputMode={valueType === 'number' ? 'decimal' : 'text'}
           onChange={(e) => setValue(e.target.value)}
         />
         <input
@@ -74,7 +124,10 @@ export function CorrectionPanel({ result }: { result: ProcessingResult }) {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
-        <button onClick={() => submit.mutate()} disabled={!field || !value || submit.isPending}>
+        <button
+          onClick={() => submit.mutate()}
+          disabled={!field || (valueType !== 'null' && !value) || submit.isPending}
+        >
           Submit correction
         </button>
       </div>

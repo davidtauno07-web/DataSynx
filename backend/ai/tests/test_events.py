@@ -74,11 +74,35 @@ def test_important_moments_exclude_plain_presence() -> None:
 
 
 def test_occupancy_timeline_reports_the_real_peak() -> None:
-    timeline = occupancy_timeline([("a", 0.0, 3.0), ("b", 2.0, 5.0), ("c", 2.0, 2.0)])
-    peak = peak_occupancy(timeline)
+    intervals = [("a", 0.0, 3.0), ("b", 2.0, 5.0), ("c", 2.0, 2.0)]
+    assert occupancy_timeline(intervals)[2] == {"t": 2.0, "count": 3}
+    peak = peak_occupancy(intervals)
     assert peak is not None
     assert peak["count"] == 3
     assert peak["t"] == 2.0
+
+
+def test_peak_occupancy_sees_overlaps_between_timeline_samples() -> None:
+    # Both tracks live between the 0s and 1s samples, so the sampled timeline
+    # never shows them together.
+    intervals = [("a", 0.2, 0.6), ("b", 0.4, 0.9)]
+    assert max(point["count"] for point in occupancy_timeline(intervals)) == 1
+    peak = peak_occupancy(intervals)
+    assert peak is not None
+    assert peak["count"] == 2
+    assert peak["t"] == 0.4
+
+
+def test_crossing_is_still_seen_when_a_sample_lands_on_the_line() -> None:
+    line = {"name": "Doorway", "x1": 50, "y1": -100, "x2": 50, "y2": 100}
+    events = track_events("Person #001", "person", samples([(0, 0), (50, 0), (100, 0)]), [line])
+    assert kinds(events).count(LINE_CROSSING) == 1
+
+
+def test_following_a_line_does_not_repeat_crossings() -> None:
+    line = {"name": "Kerb", "x1": 0, "y1": 0, "x2": 100, "y2": 0}
+    events = track_events("Person #001", "person", samples([(0, 0), (20, 0), (40, 0), (60, 0)]), [line])
+    assert LINE_CROSSING not in kinds(events)
 
 
 def test_empty_track_yields_no_events() -> None:

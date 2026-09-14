@@ -26,6 +26,8 @@ DIRECTION_CHANGE = "DIRECTION_CHANGE"
 STATIONARY_FRACTION = 0.15
 MIN_STOP_SECONDS = 1.0
 DIRECTION_CHANGE_DEGREES = 45.0
+# A point this close to a line counts as on it rather than on either side.
+ON_LINE_EPSILON = 1e-9
 
 
 @dataclass(frozen=True)
@@ -68,9 +70,13 @@ def _zone_at(point: tuple[float, float], zones: list[dict[str, Any]]) -> str | N
     return None
 
 
-def _side(line: dict[str, Any], point: tuple[float, float]) -> float:
+def _side(line: dict[str, Any], point: tuple[float, float]) -> int:
+    """-1, 0 or +1: which side of the line the point is on (0 = on the line)."""
     x1, y1, x2, y2 = line["x1"], line["y1"], line["x2"], line["y2"]
-    return (x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)
+    cross = (x2 - x1) * (point[1] - y1) - (y2 - y1) * (point[0] - x1)
+    if abs(cross) <= ON_LINE_EPSILON:
+        return 0
+    return 1 if cross > 0 else -1
 
 
 def track_events(
@@ -108,25 +114,34 @@ def track_events(
     stopped_since: float | None = None
     previous_bearing: float | None = None
     reference_bearing: float | None = None
+    # Last side that was not exactly on the line, so a track that touches the
+    # line (positive -> 0 -> negative) still registers a single crossing.
+    last_side: list[int] = [_side(line, first_p) for line in lines]
 
     for (t0, p0, b0), (t1, p1, _) in zip(samples, samples[1:], strict=False):
         dt = t1 - t0
         moved = math.dist(p0, p1)
         size = _object_size(b0)
 
-        for line in lines:
-            if _side(line, p0) * _side(line, p1) < 0:
-                name = str(line.get("name", "line"))
-                events.append(
-                    TrackEvent(
-                        t1,
-                        LINE_CROSSING,
-                        subject,
-                        object_type,
-                        f"Crossed {name}",
-                        {"line": name, "x": round(p1[0], 1), "y": round(p1[1], 1)},
-                    )
+        for index, line in enumerate(lines):
+            side = _side(line, p1)
+            if side == 0:
+                continue
+            previous_side = last_side[index]
+            last_side[index] = side
+            if previous_side == 0 or previous_side == side:
+                continue
+            name = str(line.get("name", "line"))
+            events.append(
+                TrackEvent(
+                    t1,
+                    LINE_CROSSING,
+                    subject,
+                    object_type,
+                    f"Crossed {name}",
+                    {"line": name, "x": round(p1[0], 1), "y": round(p1[1], 1)},
                 )
+            )
 
         before, after = _zone_at(p0, zones), _zone_at(p1, zones)
         if before != after:
@@ -233,11 +248,30 @@ def occupancy_timeline(
     return timeline
 
 
-def peak_occupancy(timeline: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not timeline:
+def peak_occupancy(intervals: list[tuple[str, float, float]]) -> dict[str, Any] | None:
+    """Exact peak from the track intervals themselves.
+
+    A sampled timeline is only for display: an overlap that falls between two
+    samples is invisible to it, so the peak is swept over the interval
+    boundaries instead.
+    """
+    if not intervals:
         return None
-    peak = max(timeline, key=lambda point: point["count"])
-    return {"t": peak["t"], "count": peak["count"]}
+    # Ends before starts at the same instant would hide a hand-over; starts are
+    # applied first so simultaneous presence is counted.
+    points = sorted(
+        [(start, 1) for _, start, _ in intervals] + [(end, -1) for _, _, end in intervals],
+        key=lambda p: (p[0], -p[1]),
+    )
+    count = 0
+    best = 0
+    at = points[0][0]
+    for time, delta in points:
+        count += delta
+        if count > best:
+            best = count
+            at = time
+    return {"t": round(at, 2), "count": best}
 
 
 __all__ = [

@@ -7,7 +7,7 @@ import { nextFileReference, nextImportReference } from '../../lib/references.js'
 import { unprocessable } from '../../lib/errors.js';
 import { routeModality, type FileSignature } from '../../domain/modality.js';
 import { logger } from '../../lib/logger.js';
-import { expandArchive } from './archive.js';
+import { DEFAULT_ARCHIVE_LIMITS, expandArchive, inspectArchive } from './archive.js';
 import { validateUpload } from './validation.js';
 import { scanBuffer } from './scanner.js';
 import { toJson } from '../../lib/json.js';
@@ -136,7 +136,8 @@ export async function ingestArchive(input: {
   importId: string;
   file: { originalname: string; mimetype: string; size: number; buffer: Buffer };
 }): Promise<IngestedArchive> {
-  const expansion = await expandArchive(input.file.buffer);
+  // Rejects a hostile or unreadable archive before anything is stored.
+  await inspectArchive(input.file.buffer);
 
   const { file: archive } = await ingestFile({
     workspaceId: input.workspaceId,
@@ -144,19 +145,14 @@ export async function ingestArchive(input: {
     importId: input.importId,
     file: input.file,
     modalityOverride: Modality.ARCHIVE,
-    metadata: {
-      archive: {
-        entryCount: expansion.members.length,
-        skippedCount: expansion.skipped.length,
-        extractedBytes: expansion.totalBytes,
-      },
-    },
   });
 
   const members: IngestedFile[] = [];
-  const skipped = [...expansion.skipped];
+  const skipped: { archivePath: string; reason: string }[] = [];
 
-  for (const member of expansion.members) {
+  // Members are ingested as they come out of the archive, so only one expanded
+  // file is in memory at a time regardless of how large the archive is.
+  const expansion = await expandArchive(input.file.buffer, DEFAULT_ARCHIVE_LIMITS, async (member) => {
     try {
       members.push(
         await ingestFile({
@@ -180,7 +176,22 @@ export async function ingestArchive(input: {
         reason: err instanceof Error ? err.message : 'File rejected',
       });
     }
-  }
+  });
+
+  skipped.push(...expansion.skipped);
+
+  await prisma.fileObject.update({
+    where: { id: archive.id },
+    data: {
+      metadata: toJson({
+        archive: {
+          entryCount: members.length,
+          skippedCount: skipped.length,
+          extractedBytes: expansion.totalBytes,
+        },
+      }),
+    },
+  });
 
   logger.info(
     { archive: archive.reference, extracted: members.length, skipped: skipped.length },
