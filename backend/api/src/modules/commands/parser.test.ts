@@ -73,7 +73,7 @@ describe('parseCommand', () => {
 
   it('parses deduplicated counting', () => {
     expect(parseCommand('How many people')).toEqual({ kind: 'count', objectType: 'people' });
-    expect(parseCommand('Count vehicles')).toEqual({ kind: 'count', objectType: 'vehicle' });
+    expect(parseCommand('Count vehicles')).toEqual({ kind: 'count', objectType: 'vehicles' });
   });
 
   it('reports unsupported commands instead of inventing an operation', () => {

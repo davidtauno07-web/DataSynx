@@ -32,6 +32,33 @@ const distanceSchema = z.object({
   method: z.string(),
 });
 
+/** Everyday words mapped onto the detector's class names. */
+const COUNT_ALIASES: Record<string, string[]> = {
+  people: ['person'],
+  person: ['person'],
+  pedestrian: ['person'],
+  vehicle: ['car', 'truck', 'bus', 'motorcycle', 'bicycle', 'van', 'vehicle'],
+  car: ['car'],
+  truck: ['truck'],
+  lorry: ['truck'],
+  lorries: ['truck'],
+  bus: ['bus'],
+  motorcycle: ['motorcycle'],
+  motorbike: ['motorcycle'],
+  bike: ['bicycle', 'motorcycle'],
+  bicycle: ['bicycle'],
+};
+
+/** Resolves an everyday word (singular or plural) to detector class names. */
+export function aliasesFor(word: string): string[] {
+  const forms = [word, word.replace(/s$/i, ''), word.replace(/es$/i, '')];
+  for (const form of forms) {
+    const alias = COUNT_ALIASES[form];
+    if (alias) return alias;
+  }
+  return [forms[1] ?? word];
+}
+
 async function resolveCompilation(workspaceId: string, modality?: Modality) {
   if (modality) {
     return prisma.compilation.findUnique({ where: { workspaceId_modality: { workspaceId, modality } } });
@@ -113,15 +140,16 @@ async function executeOperation(op: Operation, ctx: CommandContext): Promise<Com
         byType.set(type, (byType.get(type) ?? 0) + 1);
       }
       const wanted = op.objectType?.toLowerCase();
+      const aliases = wanted ? aliasesFor(wanted) : [];
       const matched = wanted
-        ? [...byType].filter(([type]) => type.toLowerCase().includes(wanted))
+        ? [...byType].filter(([type]) => aliases.some((alias) => type.toLowerCase().includes(alias)))
         : [...byType];
       const total = matched.reduce((sum, [, count]) => sum + count, 0);
       return {
         operation: op,
         status: CommandStatus.EXECUTED,
         message: wanted
-          ? `${total} unique ${op.objectType}(s), deduplicated across frames by tracked identity`
+          ? `${total} unique ${op.objectType}, deduplicated across frames by tracked identity`
           : `${total} unique tracked objects, deduplicated across frames`,
         data: {
           total,

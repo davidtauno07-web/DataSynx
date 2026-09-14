@@ -78,8 +78,11 @@ export function parseCommand(input: string): Operation {
 
   const counted = /^(?:how many|count)\s+(.+?)\s*(?:\?|were there|are there|in total)?$/i.exec(text);
   if (counted?.[1]) {
-    const objectType = counted[1].trim().replace(/s$/i, '');
-    return { kind: 'count', ...(objectType && objectType !== 'object' ? { objectType } : {}) };
+    const objectType = counted[1].trim();
+    return {
+      kind: 'count',
+      ...(objectType && !/^(objects?|things?|rows?)$/i.test(objectType) ? { objectType } : {}),
+    };
   }
 
   const remove = /^(remove|exclude|delete)\s+(?:row\s+)?(.+?)\s*(?:from (?:the )?results?)?$/i.exec(text);
