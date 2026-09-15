@@ -1,6 +1,7 @@
 # DataSynx
 
-Multimodal data processing, structuring, compilation and export platform.
+**Live Multimodal Data Decluttering AI Tool** — import, processing and export of
+structured data from documents, invoices, email, audio, images, CCTV and drone captures.
 
 > **AI perceives. Software calculates. DataSynx structures and compiles.**
 
@@ -72,10 +73,10 @@ Three runtimes:
 
 | Runtime | Role |
 | --- | --- |
-| `apps/api` (Node 20 + TypeScript + Express + Prisma) | HTTP API, auth, ingestion, queues, compilation, exports |
-| `apps/api` worker (BullMQ) | Asynchronous processing and export jobs |
-| `apps/ai` (Python 3.10 + FastAPI) | Perception engines (OCR, ASR, detection/tracking) and deterministic measurement engines |
-| `apps/web` (React 18 + Vite + TypeScript) | Import / Processing / Export UI |
+| `backend/api` (Node 20 + TypeScript + Express + Prisma) | HTTP API, auth, ingestion, queues, compilation, exports |
+| `backend/api` worker (BullMQ) | Asynchronous processing and export jobs |
+| `backend/ai` (Python 3.10 + FastAPI) | Perception engines (OCR, ASR, detection/tracking) and deterministic measurement engines |
+| `frontend` (React 18 + Vite + TypeScript) | Import / Processing / Export UI |
 
 Modalities never mix automatically. A CCTV video is only ever handled by the CCTV
 pipeline; shared infrastructure (ingestion, storage, queueing, compilation, export) is
@@ -84,9 +85,11 @@ the only thing they have in common.
 ## Repository layout
 
 ```
-apps/api        Express API, Prisma schema, BullMQ workers, export generators
-apps/ai         FastAPI AI service: engines/ (perception) and measure/ (mathematics)
-apps/web        React frontend (three pages + auth)
+frontend/       React SPA (Import / Processing / Export + auth)
+backend/api/    Express API, BullMQ workers, export generators
+backend/ai/     FastAPI AI service: engines/ (perception) and measure/ (mathematics)
+database/       Prisma schema and SQL migrations
+docs/           Architecture, operations and API documentation
 docker-compose.yml   PostgreSQL 16, Redis 7, MinIO
 ```
 
@@ -109,7 +112,7 @@ npm run dev                     # api + worker + web (concurrently)
 Python AI service (separate terminal):
 
 ```bash
-cd apps/ai
+cd backend/ai
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 # optional, heavy: OpenCV, Ultralytics, faster-whisper, pytesseract
@@ -152,17 +155,26 @@ processing”** in the UI. The two modes are never mixed.
 
 ## Database
 
-PostgreSQL via Prisma (`apps/api/prisma/schema.prisma`). Core entities: `User`,
+PostgreSQL via Prisma (`database/schema.prisma`). Core entities: `User`,
 `Session`, `PasswordReset`, `AuthProvider`, `Workspace`, `WorkspaceMember`, `Import`,
 `File`, `ProcessingJob`, `ProcessingItem`, `ProcessingResult`, `Compilation`,
-`CompilationRecord`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
+`CompilationRecord`, `EventClip`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
 `CameraCalibration`, `ReferenceCounter`.
 
+Every schema change is a checked-in SQL migration under `database/migrations/`,
+so any PostgreSQL server (including a local Windows install — set `DATABASE_URL`
+in `.env`) reaches the same state with one command:
+
 ```bash
-npm run db:migrate            # dev migration
-npm run db:deploy             # production
+npm run db:setup              # migrate deploy + prisma generate — creates/updates all tables
+npm run db:status             # applied vs pending migrations
+npm run db:migrate            # author a new migration after editing the schema (dev)
+npm run db:seed               # first owner account, workspace, reference counters
 npm run db:generate           # regenerate the Prisma client
 ```
+
+See [docs/DATABASE.md](docs/DATABASE.md) for the full model map, constraints and
+indexes.
 
 Human references are allocated atomically from `ReferenceCounter`:
 `DSX-2026-000001` (file), `IMP-…` (import), `JOB-…` (job), `EXP-…` (export).
@@ -218,9 +230,27 @@ POST /api/processing/jobs → job + items persisted → BullMQ enqueue
 
 Missing metadata is reported as missing. Nothing is invented.
 
+### Contextual event clips (CCTV)
+
+Events derived from tracking (`backend/ai/app/measure/events.py`) are grouped into clip
+windows by `backend/ai/app/measure/clips.py`: 3 s before the event, the event itself and
+3 s after; events within 6 s share a clip, a clip never exceeds 30 s, and a long-running
+activity therefore becomes a numbered sequence of short clips rather than one long one.
+The worker cuts each window from the original with `ffmpeg -c copy` and stores it as a
+derived object (`EventClip`); the original file is never modified. A window that cannot be
+cut is persisted as `UNAVAILABLE` with a reason instead of being dropped. Every clip keeps
+its lineage: source file, result, subject, event kinds and timestamps.
+
+### Counting
+
+Counts come from tracked identities, not per-frame detections: `count_summary`
+(`backend/ai/app/measure/counting.py`) reports unique objects, counts per class, per zone,
+per line crossing and per time bucket, with the deduplication method stated in the output.
+Drone stills are counted per image and labelled as not deduplicated across images.
+
 ## Measurement engine
 
-Deterministic only (`apps/ai/app/measure/`):
+Deterministic only (`backend/ai/app/measure/`):
 
 - `geo.py` — WGS84 geodesic distance, bearing/compass, polygon area and perimeter, path length, CRS transformation, ground sample distance (`pyproj`, `shapely`).
 - `kinematics.py` — camera calibration (uniform scale or 4+ point homography solved with NumPy SVD), pixel→world transformation, track distance, speed, direction.
@@ -253,9 +283,10 @@ limiting on auth and upload routes; Helmet security headers; audit logging of im
 commands, exports and auth events; AES-256-GCM encryption of stored OAuth tokens;
 magic-byte + extension + size + structure validation on every upload; optional ClamAV
 (reports `SKIPPED`, never a false “clean”); redacted structured logs (pino). The
-command assistant only ever executes whitelisted structured operations — free text is
-never executed, originals are never modified or deleted, and every operation is scoped
-to the caller's workspace.
+command assistant only ever executes whitelisted structured operations (filter, column
+projection, row removal/restore, reprocess, summarise, geodesic distance, event clip
+search, deduplicated counting) — free text is never executed, originals are never
+modified or deleted, and every operation is scoped to the caller's workspace and audited.
 
 ## Testing
 
@@ -263,7 +294,7 @@ to the caller's workspace.
 npm run lint && npm run typecheck && npm run test    # API + web
 npm run build
 
-cd apps/ai
+cd backend/ai
 .venv/bin/python -m pytest        # engines + measurement math
 .venv/bin/ruff check app tests
 ```
@@ -278,8 +309,8 @@ generators, and the frontend result view / auth flows.
 ## Deployment
 
 1. Provision PostgreSQL, Redis and an S3-compatible bucket.
-2. `npm run build`, then run `npm run start --workspace apps/api` and `npm run start:worker --workspace apps/api` as separate processes (scale workers horizontally).
-3. Serve `apps/web/dist` from any static host/CDN, proxying `/api` to the API.
+2. `npm run build`, then run `npm run start --workspace backend/api` and `npm run start:worker --workspace backend/api` as separate processes (scale workers horizontally).
+3. Serve `frontend/dist` from any static host/CDN, proxying `/api` to the API.
 4. Run the AI service (`uvicorn app.main:app`) on CPU or GPU hosts; scale it independently of the API.
 5. Set `COOKIE_SECURE=true` and terminate TLS in front of the API.
 6. Run `npm run db:deploy` on release.

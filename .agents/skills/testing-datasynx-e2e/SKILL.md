@@ -1,0 +1,102 @@
+---
+name: testing-datasynx-e2e
+description: How to run and UI-test the DataSynx monorepo end-to-end locally (infra, services, fixtures, auth, import/processing/export golden path, known gotchas).
+---
+
+# DataSynx local E2E testing
+
+## Bring the stack up (repo root)
+
+1. `docker compose up -d` — Postgres 5432, Redis 6379, MinIO 9000/9001.
+2. Database (root scripts, newer than `db:deploy`): `npm run db:setup` (prisma migrate deploy +
+   generate), then `npm run db:status` → expect "Database schema is up to date!".
+   Optional `npm run db:seed` needs `SEED_ADMIN_PASSWORD` (min 12 chars). `npm run db:deploy`
+   still exists on older branches. Prisma schema lives at `database/schema.prisma`.
+3. Check ports before starting anything (`ss -ltnp | grep -E '4000|5173|8000'`) — earlier shells
+   may already be serving. If the worker log spams "processing item vanished", flush stale queue
+   state: `docker compose exec -T redis redis-cli FLUSHALL`.
+4. AI service: `cd backend/ai && .venv/bin/uvicorn app.main:app --port 8000`
+   (the venv already carries the CV/ASR deps: ultralytics/YOLO, opencv, exif).
+5. API: `npm run dev --workspace backend/api` (port 4000) **and** the separate BullMQ
+   worker entry `src/worker` — processing/export jobs never finish without the worker.
+6. Web: `npm run dev --workspace frontend` → http://localhost:5173 (Vite proxies `/api` to
+   :4000 same-origin, so cookie auth works in the browser; do NOT test authed flows with curl).
+
+Sanity check: `curl localhost:4000/health` → `{"status":"ok","mode":"real"}`.
+
+## Auth
+
+Register a fresh account from `/register` (any unique email + password). Protected routes
+(`/import`, `/processing`, `/export`) are wrapped in `RequireAuth` (frontend/src/App.tsx) and
+redirect to `/login` when signed out.
+
+## Fixtures
+
+`/home/ubuntu/e2e` holds `make_invoices.mjs` (invoice-00N.pdf) and `make_media.py`
+(cctv-forecourt.mp4, drone-site.jpg with GPS EXIF, site-note.wav). Regenerate if missing.
+
+## Golden path tips
+
+- Upload multiple files in **one** GTK file dialog (shift-select). Repeatedly reopening the
+  chooser in the VM is flaky; if a file fails to attach, reload `/import` and retry once.
+- The Processing page renders only the job's *current* item (`GET /processing/jobs/:id/current`
+  = first in-flight item, else the most recently finished). To inspect a specific item's result
+  (e.g. the drone image in a mixed batch), **re-upload that file and process it as its own
+  single-item job** — there is no per-item picker in the UI.
+- Command input placeholder: `Ask DataSynx to process, calculate, filter, or reprocess...`.
+  `Show only supplier and total` maps to a `show_columns` operation
+  (backend/api/src/modules/commands/parser.ts). Note the Export compilation table is not
+  column-restricted by this command — verify the command response payload, not the export table.
+- Exports run in the worker; rows appear in the Exports table with Rows/Size and a Download
+  button. Downloads land in `~/Downloads`. `file` is not installed — validate with Python
+  (`zipfile` for XLSX, `openpyxl` via `backend/ai/.venv/bin/python`, `json.load` for GeoJSON).
+- GeoJSON on a non-spatial (invoice) compilation must FAIL with
+  "This compilation contains no spatial geometry, so GeoJSON cannot be produced".
+
+## Processing page layout & CCTV event clips
+
+- The Processing page must render exactly TWO panels under the command input: left
+  `Original / Live Source`, right `Processed / Structured Data`. Sizing comes from
+  `.split.screens > .panel { min-height: 62vh }` in frontend/src/styles.css. Quick runtime check
+  from the browser console: read `document.querySelectorAll('.split.screens > .panel')` titles and
+  `getBoundingClientRect().height` vs `innerHeight`.
+- CCTV clips: after processing a CCTV video, `Show clips of <subject|event>` swaps the LEFT panel
+  for a chronological clip strip (frontend/src/components/ClipStrip.tsx) with a `Back to source`
+  button, and the right panel shows clip lineage (clipKey, subject, events, window, source ref).
+  Clip mode is gated to `item.file.modality === 'CCTV'` and force-reset on other modalities
+  (frontend/src/pages/ProcessingPage.tsx) — switching to an invoice item must restore the source.
+- Clip/count command phrasing is regex-driven in
+  backend/api/src/modules/commands/parser.ts. Event phrases are matched by a small list; plural
+  noun forms may not be covered (e.g. "stops" did not match while "stopped" did). If a clip search
+  returns "No event clips match that request", try another inflection before concluding there is
+  no clip data, and check the DB/`findClips` to distinguish parser vs data problems.
+- Counting commands (`how many people`, `count buses`) resolve the MOST RECENTLY UPDATED
+  compilation when no modality is given (backend/api/src/modules/commands/service.ts) — process or
+  re-select the CCTV job immediately before counting, or you will count the wrong dataset.
+
+## Measurement semantics (the core safety property)
+
+- Uncalibrated CCTV must report Distance/Speed as `UNAVAILABLE` (never a number); Direction is
+  `MEASURED` in degrees. See backend/ai/app/engines/cctv.py.
+- Drone: GPS lat/lon/altitude come from EXIF, but sizes (width/length/area/perimeter) are
+  `UNAVAILABLE` unless ground sample distance can be computed (needs altitude **and sensor
+  width** and focal length and image width). The stock fixture lacks sensor width, so every
+  drone measurement row is UNAVAILABLE — that is correct behaviour, not a bug. If you need a
+  MEASURED drone size row, add a sensor-width EXIF/telemetry field to the fixture.
+
+## Known issues seen at time of writing (may still be present)
+
+- Duplicate pill renders "Possible duplicate of" with **no reference**: the API returns
+  `duplicateOf` as a string (backend/api/src/modules/ingestion/service.ts) while
+  frontend/src/pages/import/ManualUpload.tsx reads `duplicateOf.reference`.
+- Concurrent items in one batch can fail with Prisma P2002 on `(workspaceId, modality)` in
+  `prisma.compilation.upsert()` (backend/api/src/modules/compilation/service.ts). "Retry failed"
+  in the UI recovers it. Watch the worker log when a batch reports failed items.
+- Export page compilation dropdown previously showed "· <blank> rows"; fixed as of e4ba7a0
+  (now "Invoice compilation · INVOICE · 3 rows"). Re-check on older branches.
+- The VM has no microphone: the voice recorder errors with "Requested device not found".
+  Report as an environment limitation; do not fake a recording.
+
+## Devin Secrets Needed
+
+None — everything runs locally from the root `.env`.

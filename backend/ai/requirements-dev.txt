@@ -1,0 +1,6 @@
+# Test and lint tooling for the AI service (not needed at runtime).
+pytest==9.1.1
+ruff==0.16.6
+
+# Writes EXIF into test fixtures (drone metadata tests).
+piexif==1.1.3
