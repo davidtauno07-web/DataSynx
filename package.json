@@ -22,6 +22,10 @@
     "db:migrate": "npm run db:migrate --workspace backend/api",
     "db:deploy": "npm run db:deploy --workspace backend/api",
     "db:generate": "npm run db:generate --workspace backend/api",
+    "db:status": "npm run db:status --workspace backend/api",
+    "db:seed": "npm run db:seed --workspace backend/api",
+    "db:setup": "npm run db:deploy --workspace backend/api && npm run db:generate --workspace backend/api",
+    "db:studio": "npm run db:studio --workspace backend/api",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down"
   },

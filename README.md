@@ -161,11 +161,20 @@ PostgreSQL via Prisma (`database/schema.prisma`). Core entities: `User`,
 `CompilationRecord`, `EventClip`, `ProcessingCommand`, `AuditLog`, `ExportJob`, `GmailAccount`,
 `CameraCalibration`, `ReferenceCounter`.
 
+Every schema change is a checked-in SQL migration under `database/migrations/`,
+so any PostgreSQL server (including a local Windows install — set `DATABASE_URL`
+in `.env`) reaches the same state with one command:
+
 ```bash
-npm run db:migrate            # dev migration
-npm run db:deploy             # production
+npm run db:setup              # migrate deploy + prisma generate — creates/updates all tables
+npm run db:status             # applied vs pending migrations
+npm run db:migrate            # author a new migration after editing the schema (dev)
+npm run db:seed               # first owner account, workspace, reference counters
 npm run db:generate           # regenerate the Prisma client
 ```
+
+See [docs/DATABASE.md](docs/DATABASE.md) for the full model map, constraints and
+indexes.
 
 Human references are allocated atomically from `ReferenceCounter`:
 `DSX-2026-000001` (file), `IMP-…` (import), `JOB-…` (job), `EXP-…` (export).

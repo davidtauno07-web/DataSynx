@@ -77,6 +77,7 @@ export function ProcessingPage() {
       setCommandInput('');
       const found = (res.data as { clips?: EventClip[] } | undefined)?.clips;
       if (res.operation.kind === 'find_clips' && found && found.length > 0) {
+        // Keeps the left screen on the original unless CCTV clips were found.
         setClips(found);
         setSelectedClip(found[0] ?? null);
       }
@@ -100,6 +101,17 @@ export function ProcessingPage() {
   const job = current.data?.job ?? null;
   const item = current.data?.item ?? null;
   const result = current.data?.result ?? null;
+
+  // Event clips exist only for CCTV footage, so the clip view can only ever
+  // replace the source screen while a CCTV item is in view.
+  const isCctv = item?.file.modality === 'CCTV';
+  const showClips = isCctv && clips !== null && clips.length > 0;
+
+  useEffect(() => {
+    if (isCctv) return;
+    setClips(null);
+    setSelectedClip(null);
+  }, [isCctv]);
 
   const progress = useMemo(() => {
     if (!job || job.totalItems === 0) return 0;
@@ -200,11 +212,11 @@ export function ProcessingPage() {
             )}
           </Panel>
 
-          <div className="split">
+          <div className="split screens">
             <Panel
-              title={clips ? 'Event clips' : 'Original / Live Source'}
+              title={showClips ? 'Event clips' : 'Original / Live Source'}
               actions={
-                clips ? (
+                showClips ? (
                   <button
                     onClick={() => {
                       setClips(null);
@@ -216,7 +228,7 @@ export function ProcessingPage() {
                 ) : undefined
               }
             >
-              {clips ? (
+              {showClips ? (
                 <ClipStrip clips={clips} selected={selectedClip} onSelect={setSelectedClip} />
               ) : (
                 <>
@@ -234,7 +246,7 @@ export function ProcessingPage() {
             </Panel>
 
             <Panel title="Processed / Structured Data">
-              {selectedClip && (
+              {showClips && selectedClip && (
                 <dl className="kv" style={{ marginBottom: 12 }}>
                   <dt>Clip</dt>
                   <dd className="mono">{selectedClip.clipKey}</dd>

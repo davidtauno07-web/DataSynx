@@ -206,6 +206,23 @@ h3 {
   align-items: start;
 }
 
+/* The two Processing screens: equal, large, always side by side on desktop. */
+.split.screens {
+  align-items: stretch;
+  gap: var(--space-5);
+}
+
+.split.screens > .panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 62vh;
+}
+
+.split.screens > .panel > .panel-body {
+  flex: 1;
+  overflow: auto;
+}
+
 .grid-3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -552,8 +569,7 @@ pre {
   padding: 0;
   display: grid;
   gap: var(--space-2);
-  max-height: 240px;
-  overflow-y: auto;
+  max-height: 100%;
 }
 
 .clip-strip button.clip {

@@ -12,12 +12,16 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:status": "prisma migrate status",
+    "db:seed": "tsx ../../database/seed.ts",
+    "db:studio": "prisma studio",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "prisma": {
-    "schema": "../../database/schema.prisma"
+    "schema": "../../database/schema.prisma",
+    "seed": "tsx ../../database/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.664.0",
