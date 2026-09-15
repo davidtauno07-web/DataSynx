@@ -8,12 +8,18 @@ description: How to run and UI-test the DataSynx monorepo end-to-end locally (in
 ## Bring the stack up (repo root)
 
 1. `docker compose up -d` — Postgres 5432, Redis 6379, MinIO 9000/9001.
-2. `npm run db:deploy` if the Prisma schema is not applied.
-3. AI service: `cd backend/ai && .venv/bin/uvicorn app.main:app --port 8000`
+2. Database (root scripts, newer than `db:deploy`): `npm run db:setup` (prisma migrate deploy +
+   generate), then `npm run db:status` → expect "Database schema is up to date!".
+   Optional `npm run db:seed` needs `SEED_ADMIN_PASSWORD` (min 12 chars). `npm run db:deploy`
+   still exists on older branches. Prisma schema lives at `database/schema.prisma`.
+3. Check ports before starting anything (`ss -ltnp | grep -E '4000|5173|8000'`) — earlier shells
+   may already be serving. If the worker log spams "processing item vanished", flush stale queue
+   state: `docker compose exec -T redis redis-cli FLUSHALL`.
+4. AI service: `cd backend/ai && .venv/bin/uvicorn app.main:app --port 8000`
    (the venv already carries the CV/ASR deps: ultralytics/YOLO, opencv, exif).
-4. API: `npm run dev --workspace backend/api` (port 4000) **and** the separate BullMQ
+5. API: `npm run dev --workspace backend/api` (port 4000) **and** the separate BullMQ
    worker entry `src/worker` — processing/export jobs never finish without the worker.
-5. Web: `npm run dev --workspace frontend` → http://localhost:5173 (Vite proxies `/api` to
+6. Web: `npm run dev --workspace frontend` → http://localhost:5173 (Vite proxies `/api` to
    :4000 same-origin, so cookie auth works in the browser; do NOT test authed flows with curl).
 
 Sanity check: `curl localhost:4000/health` → `{"status":"ok","mode":"real"}`.
@@ -47,6 +53,27 @@ redirect to `/login` when signed out.
 - GeoJSON on a non-spatial (invoice) compilation must FAIL with
   "This compilation contains no spatial geometry, so GeoJSON cannot be produced".
 
+## Processing page layout & CCTV event clips
+
+- The Processing page must render exactly TWO panels under the command input: left
+  `Original / Live Source`, right `Processed / Structured Data`. Sizing comes from
+  `.split.screens > .panel { min-height: 62vh }` in frontend/src/styles.css. Quick runtime check
+  from the browser console: read `document.querySelectorAll('.split.screens > .panel')` titles and
+  `getBoundingClientRect().height` vs `innerHeight`.
+- CCTV clips: after processing a CCTV video, `Show clips of <subject|event>` swaps the LEFT panel
+  for a chronological clip strip (frontend/src/components/ClipStrip.tsx) with a `Back to source`
+  button, and the right panel shows clip lineage (clipKey, subject, events, window, source ref).
+  Clip mode is gated to `item.file.modality === 'CCTV'` and force-reset on other modalities
+  (frontend/src/pages/ProcessingPage.tsx) — switching to an invoice item must restore the source.
+- Clip/count command phrasing is regex-driven in
+  backend/api/src/modules/commands/parser.ts. Event phrases are matched by a small list; plural
+  noun forms may not be covered (e.g. "stops" did not match while "stopped" did). If a clip search
+  returns "No event clips match that request", try another inflection before concluding there is
+  no clip data, and check the DB/`findClips` to distinguish parser vs data problems.
+- Counting commands (`how many people`, `count buses`) resolve the MOST RECENTLY UPDATED
+  compilation when no modality is given (backend/api/src/modules/commands/service.ts) — process or
+  re-select the CCTV job immediately before counting, or you will count the wrong dataset.
+
 ## Measurement semantics (the core safety property)
 
 - Uncalibrated CCTV must report Distance/Speed as `UNAVAILABLE` (never a number); Direction is
@@ -65,7 +92,8 @@ redirect to `/login` when signed out.
 - Concurrent items in one batch can fail with Prisma P2002 on `(workspaceId, modality)` in
   `prisma.compilation.upsert()` (backend/api/src/modules/compilation/service.ts). "Retry failed"
   in the UI recovers it. Watch the worker log when a batch reports failed items.
-- Export page compilation dropdown shows "· <blank> rows" (missing rowCount).
+- Export page compilation dropdown previously showed "· <blank> rows"; fixed as of e4ba7a0
+  (now "Invoice compilation · INVOICE · 3 rows"). Re-check on older branches.
 - The VM has no microphone: the voice recorder errors with "Requested device not found".
   Report as an environment limitation; do not fake a recording.
 

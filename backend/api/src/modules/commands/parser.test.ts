@@ -60,6 +60,9 @@ describe('parseCommand', () => {
       kind: 'find_clips',
       eventKind: 'LINE_CROSSING',
     });
+    for (const phrasing of ['Show clips of stops', 'Show clips of stopped', 'Show clips of dwell']) {
+      expect(parseCommand(phrasing)).toEqual({ kind: 'find_clips', eventKind: 'STOP' });
+    }
     expect(parseCommand('Show clips of Person #001')).toEqual({
       kind: 'find_clips',
       subject: 'Person #001',

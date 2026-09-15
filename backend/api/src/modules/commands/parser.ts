@@ -35,7 +35,7 @@ const EVENT_PHRASES: [RegExp, string][] = [
   [/\bcross(?:ed|ings?|es)?\b/i, 'LINE_CROSSING'],
   [/enter(?:ed|ing)?\s+(?:the\s+)?zone|zone\s+entry|restricted/i, 'ZONE_ENTRY'],
   [/(?:left|exit(?:ed|ing)?)\s+(?:the\s+)?zone|zone\s+exit/i, 'ZONE_EXIT'],
-  [/stopp?(?:ed|ing)|stationary|standing|dwell/i, 'STOP'],
+  [/\bstops?\b|stopp?(?:ed|ing)|stationary|standing|dwell/i, 'STOP'],
   [/resumed|started moving/i, 'RESUME'],
   [/turn(?:ed|ing)?|direction change|changed direction/i, 'DIRECTION_CHANGE'],
 ];
